@@ -89,9 +89,9 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
         uint32_t rs1 = ((instr >> 7) & 0x7) + 8;
         uint32_t rs2 = ((instr >> 2) & 0x7) + 8;
 
-        uint64_t imm = ((instr >> 6) & 0x1) << 2  
-                | ((instr >> 10) & 0x3) << 3 
-                | ((instr >> 5) & 0x1) << 6; 
+        uint64_t imm =  
+                 ((instr >> 10) & 0x7) << 3 
+                | ((instr >> 5) & 0x3) << 6; 
         uint64_t addr = cpu->gpr[rs1] + imm;
       
         bus_write(&cpu->bus,addr,cpu->gpr[rs2],8);
@@ -232,9 +232,13 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
                                 ((instr >> 6) & 0x1) << 4 |
                                 ((instr >> 12) & 0x1) << 9;
 
-                int32_t imm = (int32_t)(imm6 << 22) >> 22;
+                int64_t imm = (int64_t)((int32_t)(imm6 << 22) >> 22);
                 cpu->gpr[rd] += imm; 
                 cpu->pc += 2;
+                if(log_enable){
+                    printf("[c.addi16sp] x[rd:%d]:0x%08lx,imm:0x%16lx\n",
+                        rd,cpu->gpr[rd],imm);
+                }
 
             }
             break;
@@ -408,18 +412,14 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
     }
     case 0b011://c.ldsp
     {
-        uint32_t imm6 = ((instr >> 2) & 0x7) << 6|
+        uint32_t imm6 = ((instr >> 2) & 0x7) << 6 |
                         ((instr >> 5) & 0x3) << 3 |
                         ((instr >> 12) & 0x1) << 5;
-        uint64_t imm = (uint64_t)imm6;
+        uint64_t imm = (uint64_t)(uint32_t)imm6;
         
         uint64_t addr = cpu->gpr[2] + imm;
         int64_t val = 0;
-        if(log_enable){
-        printf("[c.ldsp] x[%d]:0x%16lx, x[2]:0x%16lx,imm:0x%16lx\n",rd,cpu->gpr[rd],
-                    cpu->gpr[2],imm);
-        }
-        
+
         val = bus_read(&cpu->bus,addr,8);
         cpu->gpr[rd] = val;
         cpu->pc += 2;

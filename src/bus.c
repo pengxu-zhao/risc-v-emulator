@@ -1,7 +1,7 @@
 
 #include "bus.h"
 #include "memory.h"
-
+extern uint8_t *memory;
 void bus_register_mmio(Bus *bus, uint64_t base, uint64_t size,
                        uint64_t (*read)(void*, uint64_t, unsigned),
                        void (*write)(void*, uint64_t, uint64_t, unsigned),
@@ -26,13 +26,16 @@ uint64_t bus_read(Bus *bus, uint64_t addr, unsigned size) {
             return r->read(r->opaque, offset, size);
         }
     }
-    // 默认从内存读取
-    /*
-    extern uint8_t *memory;
-    uint64_t val = 0;
-    memcpy(&val, &memory[addr - MEMORY_BASE], size);
-    return val; 
-    */
+
+    
+    if(addr > MEMORY_BASE && addr + size - 1 < MEMORY_BASE + MEMORY_SIZE){
+        uint64_t val = 0;
+        memcpy(&val, &memory[addr - MEMORY_BASE], size);
+        return val; 
+    }
+
+    printf("[bus_read]addr:0x%16lx not in any mmio region\n",addr);
+    
 }
 
 void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
@@ -45,8 +48,12 @@ void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
             return;
         }
     }
+    
     // 默认写内存
-    /*
-    extern uint8_t *memory;
-    memcpy(&memory[addr - MEMORY_BASE], &val, size);*/
+    if(addr > MEMORY_BASE && addr + size - 1 < MEMORY_BASE + MEMORY_SIZE){
+        memcpy(&memory[addr - MEMORY_BASE], &val, size);
+        return;
+    }
+
+    printf("[bus_write]addr:0x%16lx not in any mmio region\n",addr);
 }
