@@ -729,3 +729,27 @@ void init_page_table(CPU_State *cpu) {
     return;
 
 }
+
+
+uint64_t get_pa(CPU_State *cpu,uint64_t vaddr,int acc_type){
+    uint64_t pa = 0;
+    uint64_t satp = cpu->csr[CSR_SATP];
+    uint8_t flags = 0;
+
+    if (((satp >> 60) & 0xF) != 0){
+        int result = tlb_lookup(cpu,vaddr,acc_type,&pa,cpu->asid);
+        if(result != MMU_OK){
+            result = sv39_translate(cpu,vaddr,acc_type,&pa,&flags);
+            if(result == MMU_FAULT_ACCESS){
+                //handle_page_fault(cpu,va,ACC_FETCH);
+                return 0;
+            }
+        }
+        return pa;
+    }
+    
+    pa = vaddr;
+    
+
+    return pa;
+}

@@ -52,4 +52,5 @@ void tlb_flush(CPU_State* cpu);
 void init_page_table(CPU_State *cpu);
 uint64_t phys_read_u32(CPU_State *cpu, uint64_t pa);
 void phys_write_u32(CPU_State *cpu, uint64_t pa, uint64_t v);
+uint64_t get_pa(CPU_State *cpu,uint64_t vaddr,int acc_type);
 #endif

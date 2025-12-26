@@ -165,3 +165,4 @@ void memory_pool_init(struct memory_pool* pool) {
 
     pool->freelist = (struct memory_block*) pool->memory;
 }
+

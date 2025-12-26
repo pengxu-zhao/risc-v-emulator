@@ -184,24 +184,8 @@ uint32_t fetch_instruction(CPU_State* cpu, uint8_t* memory) {
 
     uint64_t pa = 0;
     uint64_t va = cpu->pc;
-    uint8_t flags = 0;
-    uint64_t satp = cpu->csr[CSR_SATP];
-
-    if (((satp >> 60) & 0xF) != 0){
-        int result = tlb_lookup(cpu,va,ACC_FETCH,&pa,cpu->asid);
-        printf("tlb pa:0x%016lx,result:%d\n",pa,result);
-        if(result != MMU_OK){
-            result = sv39_translate(cpu,va,ACC_FETCH,&pa,&flags);
-            printf("sv 39 pa:0x%016lx\n",pa);
-            if(result == MMU_FAULT_ACCESS){
-                //handle_page_fault(cpu,va,ACC_FETCH);
-                return 0;
-            }
-    }
-    }else{
-        pa = cpu->pc;
-    }
-
+    pa = get_pa(cpu,va,ACC_FETCH);
+    
     uint16_t instr = memory_read(cpu->mem,pa,2) & 0xFFFF;
     if((instr & 0x3) == 0x3){
         return memory_read(cpu->mem,pa,4);

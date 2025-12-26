@@ -212,17 +212,32 @@ int main() {
                         //
                         //413339546
                             
-            for( ;j <= 413363454; j++) {
+            for( ;j <= 413363676; j++) {
                 cpu_step(&cpu[i],memory);
 
                 cpu->csr[CSR_TIME] += 10;
                 int n = 0;
                 
-                if(cpu[0].csr[CSR_TIME] >= 4133628700){
+                if(cpu[0].csr[CSR_TIME] >= 4133628300){
+                   // log_enable = 1;
+                }
+
+          
+                if(j > 413362839){
+                    uint64_t addr = 0x8000fcd8;
+                    uint64_t val = bus_read(&bus,addr,8);
+                    if(val != 0x80001870){
+                     //   printf("j:%ld\n");
+                      //  cpu[0].halted = true;
+                    }
+                }
+
+                if(cpu[0].pc == 0x80001acc){
                     log_enable = 1;
                 }
 
-                if(cpu[0].pc == 0x80000ed8){
+                if(cpu[0].pc == 0x80001ad2){
+                    //printf("x11:0x%08lx\n",cpu[0].gpr[11]);
                     //printf("j:%ld , time:%ld\n",j,cpu[0].csr[CSR_TIME]);
                     //cpu[0].halted = true;
                 }

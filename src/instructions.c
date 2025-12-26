@@ -7,6 +7,7 @@
 #include "mmu.h"
 #include "bus.h"
 
+
 extern uint8_t* memory;
 extern int log_enable;
 
@@ -417,14 +418,16 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
                         ((instr >> 12) & 0x1) << 5;
         uint64_t imm = (uint64_t)(uint32_t)imm6;
         
-        uint64_t addr = cpu->gpr[2] + imm;
+        uint64_t vaddr = cpu->gpr[2] + imm;
         int64_t val = 0;
 
-        val = bus_read(&cpu->bus,addr,8);
+        uint64_t pa = get_pa(cpu,vaddr,ACC_LOAD);
+     
+        val = bus_read(&cpu->bus,pa,8);
         cpu->gpr[rd] = val;
         cpu->pc += 2;
         if(log_enable){
-        printf("[c.ldsp] x[%d]:0x%16lx,addr:0x%16lx\n",rd,cpu->gpr[rd],addr);
+            printf("[c.ldsp] x[%d]:0x%16lx,vaddr:0x%16lx,pa:0x%08lx\n",rd,cpu->gpr[rd],vaddr,pa);
         }
         break;
     }
@@ -492,12 +495,17 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         uint32_t imm6 = ((instr >> 7) & 0x7) << 6 |
                         ((instr >> 10) & 0x7) << 3;
         uint64_t imm = (uint64_t)imm6;
-        uint64_t addr = cpu->gpr[2] + imm;
-        bus_write(&cpu->bus,addr,cpu->gpr[rs2],8);
+        uint64_t vaddr = cpu->gpr[2] + imm;
+
+        int64_t val = 0;
+
+        uint64_t pa = get_pa(cpu,vaddr,ACC_STORE);
+
+        bus_write(&cpu->bus,pa,cpu->gpr[rs2],8);
         
         cpu->pc += 2;
         if(log_enable){
-        printf("[c.sdsp] addr:0x%16lx,x[%d]:0x%16lx\n",addr,rs2,cpu->gpr[rs2]);
+        printf("[c.sdsp] addr:0x%16lx,pa:0x%08lx,x[%d]:0x%16lx\n",vaddr,pa,rs2,cpu->gpr[rs2]);
         }
 
         
