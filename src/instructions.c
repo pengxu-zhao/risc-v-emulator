@@ -59,13 +59,13 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
         
             uint64_t addr = cpu->gpr[rs1] + imm8;
             uint64_t val = 0;
-
+            uint64_t pa = get_pa(cpu,addr,ACC_LOAD);
             if(rd != 0){
-                val = bus_read(&cpu->bus,addr,4);
+                val = bus_read(&cpu->bus,pa,4);
                 cpu->gpr[rd] = val;
             }
             if(log_enable){
-                printf("[c.lw] x[%d]:0x%08lx, addr:0x%08lx\n",rd,val,addr);
+                printf("[c.lw] x[%d]:0x%08lx, pa:0x%08lx\n",rd,val,PRIdFAST32);
             }
             cpu->pc += 2;
             break;
@@ -79,9 +79,10 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
                 | ((instr >> 10) & 0x7) << 3 
                 | ((instr >> 5) & 0x1) << 6; 
         uint64_t addr = cpu->gpr[rs1] + imm;      
-        bus_write(&cpu->bus,addr,cpu->gpr[rs2],4);
+        uint64_t pa = get_pa(cpu,addr,ACC_STORE);
+        bus_write(&cpu->bus,pa,cpu->gpr[rs2],4);
         if(log_enable)
-            printf("[c.sw after] imm:0x%08lx,addr:0x%08x,rs2 val:%d 0x%08x\n",imm,addr,rs2,cpu->gpr[rs2]);
+            printf("[c.sw after] imm:0x%08lx,pa:0x%08x,rs2 val:%d 0x%08x\n",imm,pa,rs2,cpu->gpr[rs2]);
         cpu->pc += 2;
         break;
     }
@@ -94,12 +95,13 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
                  ((instr >> 10) & 0x7) << 3 
                 | ((instr >> 5) & 0x3) << 6; 
         uint64_t addr = cpu->gpr[rs1] + imm;
+        uint64_t pa = get_pa(cpu,addr,ACC_STORE);
       
-        bus_write(&cpu->bus,addr,cpu->gpr[rs2],8);
+        bus_write(&cpu->bus,pa,cpu->gpr[rs2],8);
         cpu->pc += 2;
         if(log_enable){
-        printf("[c.sd] x[%d]:0x%16lx,addr:0x%16lx,x[%d]:0x%16lx\n",
-            rs1,cpu->gpr[rs1],addr,rs2,cpu->gpr[rs2]);
+        printf("[c.sd] x[%d]:0x%16lx,pa:0x%16lx,x[%d]:0x%16lx\n",
+            rs1,cpu->gpr[rs1],pa,rs2,cpu->gpr[rs2]);
         }
         break;
     }
@@ -113,14 +115,16 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
         uint64_t imm = (uint64_t)imm8;
         
         uint64_t val = 0;
+        uint64_t vaddr = cpu->gpr[rs1] + imm;
+        uint64_t pa = get_pa(cpu,vaddr,ACC_LOAD);
         
-        val = bus_read(&cpu->bus,cpu->gpr[rs1]+imm,8);
+        val = bus_read(&cpu->bus,pa,8);
         
         cpu->gpr[rd] = val;
         cpu->pc += 2;
         if(log_enable){
-        printf("[c.ld load 64bits] x[%d]:0x%16lx = load from (x[%d]:0x%16lx + imm:0x16%lx)\n",
-                rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],imm);
+            printf("[c.ld load 64bits] x[%d]:0x%16lx = load from pa:0x%16lx\n",
+                rd,cpu->gpr[rd],pa);
         }
         break;
     }
@@ -261,8 +265,19 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
             }
             
         }else if(funct2_10_11 == 0b01){//c.srai c.srai64
-            uint8_t shamt = (instr >> 10) & 0x7;
+            uint8_t shamt = (instr >> 2) & 0x1F | 
+                            (((instr >> 12) & 0x1) << 5);
+             if(log_enable){
+                printf("[before c.srai] x[%d]:0x%08lx,shamt:%d\n",rd,cpu->gpr[rd],shamt);
+            }
+
+
             cpu->gpr[rd] = (int64_t)cpu->gpr[rd] >> shamt;
+            if(log_enable){
+                printf("[after c.srai] x[%d]:0x%08lx,shamt:%d\n",rd,cpu->gpr[rd],shamt);
+
+            }
+
             cpu->pc += 2;
 
         }else if(funct2_10_11 == 0b10){  // c.andi
@@ -288,7 +303,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
             }else if(funct2_56 == 0b10){ //c.or
                 cpu->gpr[rd] |= cpu->gpr[rs2];
                 if(log_enable){
-                    printf("[add] x[%d]:0x%16lx |= x[%d]:0x%16lx\n",
+                    printf("[c.or] x[%d]:0x%16lx |= x[%d]:0x%16lx\n",
                         rd,cpu->gpr[rd],rs2,cpu->gpr[rs2]);
                 }
 
@@ -402,12 +417,14 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         uint32_t imm = ((instr >> 4) & 0x7) << 2 |
                         ((instr >> 12) & 0x1) << 5 |
                         ((instr >> 2) & 0x3) << 6;
-        uint32_t addr = cpu->gpr[2] + imm;
+        uint64_t addr = cpu->gpr[2] + imm;
+        uint64_t pa = get_pa(cpu,addr,ACC_STORE);
         if(rd != 0){
-            cpu->gpr[rd] = memory_read(memory,addr,4);
-            //printf("c.lwsp addr:0x%08x,rd value:%d 0x%08x\n",addr,rd,cpu->gpr[rd]);
+            cpu->gpr[rd] = bus_read(&cpu->bus,pa,4);
         }
-        //printf("imm:0x%08x,addr:0x%08x,ra:0x%08x\n",imm,addr,cpu->gpr[rd]);
+        if(log_enable){
+            printf("[c.lwsp]imm:0x%08x,pa:0x%08x,ra:0x%08x\n",imm,pa,cpu->gpr[rd]);
+        }
         cpu->pc += 2;
         break;
     }
@@ -438,9 +455,14 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         uint32_t imm = ((instr >> 7) & 0x3) << 6 
                 | ((instr >> 9) & 0xF) << 2 ;
            
-        uint32_t addr = cpu->gpr[0x2] + imm;//x2 + imm
-        memory_write(memory,addr,cpu->gpr[rs2],4);
-        //printf("c.swsp addr : 0x%08x ,rs2 val:%d 0x%08x\n",addr,rs2,cpu->gpr[rs2]);
+        uint64_t addr = cpu->gpr[0x2] + imm;//x2 + imm
+
+        uint64_t pa = get_pa(cpu,addr,ACC_STORE);
+
+        bus_write(&cpu->bus,pa,cpu->gpr[rs2],4);
+        if(log_enable){
+            printf("c.swsp pa : 0x%08x ,rs2 val:%d 0x%08x\n",pa,rs2,cpu->gpr[rs2]);
+        }
         cpu->pc += 2;
         break;
     }
@@ -649,7 +671,7 @@ void exec_jalr(CPU_State* cpu, uint32_t instruction){
     } 
 
     if(log_enable){
-    printf("[jalr/jr] x[%d]:0x%16lx,addr:0x%16lx\n",rd,cpu->gpr[rd],addr);
+    printf("[jalr/jr] x[%d]:0x%16lx,pa:0x%16lx\n",rd,cpu->gpr[rd],addr);
     }
 
     cpu->pc = addr;
@@ -909,22 +931,26 @@ void exec_div(CPU_State* cpu,uint32_t instr){
 
 
 //S
-static void cpu_store8(CPU_State* cpu,uint32_t addr,uint8_t val){
+static void cpu_store8(CPU_State* cpu,uint64_t addr,uint8_t val){
     //memory_write(cpu->mem,addr,val,1);
-    bus_write(&cpu->bus,addr,val,1);
+    uint64_t pa = get_pa(cpu,addr,ACC_STORE);
+
+    bus_write(&cpu->bus,pa,val,1);
 }
 
-void cpu_store16(CPU_State *cpu, uint32_t addr, uint16_t val) {
+void cpu_store16(CPU_State *cpu, uint64_t addr, uint16_t val) {
 
     bus_write(&cpu->bus,addr,val & 0xFF,2);
 }
 
-void cpu_store32(CPU_State *cpu, uint32_t addr, uint32_t val) {
-        bus_write(&cpu->bus,addr,val,4);
+void cpu_store32(CPU_State *cpu, uint64_t addr, uint32_t val) {
+
+    bus_write(&cpu->bus,addr,val,4);
 }
 
-void cpu_store64(CPU_State *cpu, uint32_t addr, uint64_t val) {
-        bus_write(&cpu->bus,addr,val,8);
+void cpu_store64(CPU_State *cpu, uint64_t addr, uint64_t val) {
+    
+    bus_write(&cpu->bus,addr,val,8);
 }
 void exec_store(CPU_State* cpu,uint32_t instructions){
 /*
@@ -943,34 +969,39 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
 
     uint8_t funct3 = (instructions >> 12) & 0x7 ;
 
+    uint64_t pa = get_pa(cpu,addr,ACC_STORE);
+
     switch (funct3)
     {
     case 0x0: //SB
     {
-        cpu_store8(cpu, addr, (uint8_t)(value & 0xFF));
+        cpu_store8(cpu, pa, (uint8_t)(value & 0xFF));
         if(log_enable){
-        printf("[Sb load 1 byte] x[%d]:0x%16lx + imm:0x%16lx = addr:0x%16lx,value = x[%d]:0x%16lx\n",
-               rs1,cpu->gpr[rs1],imm,addr,rs2,cpu->gpr[rs2] );
+        printf("[Sb load 1 byte] x[%d]:0x%16lx + imm:0x%16lx = pa:0x%16lx,value = x[%d]:0x%16lx\n",
+               rs1,cpu->gpr[rs1],imm,pa,rs2,cpu->gpr[rs2] );
         }
         break;
     }
     case 0x1: //SH
-        cpu_store16(cpu, addr, (uint16_t)(value & 0xFFFF));
+        cpu_store16(cpu, pa, (uint16_t)(value & 0xFFFF));
+        if(log_enable){
+            printf("[sh] pa:0x%08lx,val:0x%08lx\n",pa,(uint16_t)(value & 0xFFFF));
+        }
         break;
     case 0x2://SW
-        cpu_store32(cpu, addr, value);
+        cpu_store32(cpu, pa, value);
         if(log_enable){
-            printf("[exec_sw] addr:0x%08x,value:0x%08x\n",addr,value);
+            printf("[exec_sw] pa:0x%08x,value:0x%08x,x[%d]:0x%16lx\n",pa,value,rs2,cpu->gpr[rs2]);
         }
         break;
 
     case 0b11://SD
     {
-        cpu_store64(cpu, addr, (uint64_t)value);
+        cpu_store64(cpu, pa, (uint64_t)value);
         if(log_enable){
         printf("[sd store 8bytes] x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%16lx\n",
                 rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],imm);
-        printf("[sd 8 bytes] addr:0x%08lx\n",addr);
+        printf("[sd 8 bytes] pa:0x%08lx\n",pa);
         }
         break;
     }
@@ -1061,30 +1092,41 @@ void exec_sfencevma(CPU_State* cpu,uint32_t instruction){
    
 }
 
-static void load_lb(CPU_State* cpu,uint32_t addr,uint8_t rd){
+static void load_lb(CPU_State* cpu,uint64_t addr,uint8_t rd){
     int32_t val = 0;
+
     val = (int32_t)(int8_t)bus_read(&cpu->bus,addr,1);
     if(rd != 0){
         cpu->gpr[rd] = val;
     }
 }
-static void load_lbu(CPU_State* cpu,uint32_t addr,uint8_t rd){
+static void load_lbu(CPU_State* cpu,uint64_t addr,uint8_t rd){
     uint32_t val = 0;
+
+
+
     val = (uint32_t)bus_read(&cpu->bus,addr,1);
     if(rd != 0){
         cpu->gpr[rd] = val;
     }
     if(log_enable){
-    printf("[lbu] x[%d]:0x%16lx,val:0x%16xlx\n",rd,val);
+        printf("[lbu] x[%d]:0x%16lx,val:0x%16lx\n",rd,val);
     }
 }
 
-static void load_lw(CPU_State* cpu,uint32_t addr,uint8_t rd){
-    uint32_t val = 0;
+static void load_lw(CPU_State* cpu,uint64_t addr,uint8_t rd){
+    uint64_t val = 0;
+
+
     val = (uint32_t)bus_read(&cpu->bus,addr,4);
     if(rd != 0){
         cpu->gpr[rd] = val;
     }
+    if(log_enable){
+        printf("[lw] x[rd:%d]:0x%08lx,va:0x%08lx,pa:0x%08lx\n",
+            rd,cpu->gpr[rd],addr,addr);
+    }
+
 }
 
 //load
@@ -1101,6 +1143,9 @@ void exec_load(CPU_State *cpu,uint32_t instruction){
     int64_t imm = (int64_t)(((int32_t)imm12 << 20) >> 20);
 
     uint64_t addr = cpu->gpr[rs1] + imm;
+
+    addr = get_pa(cpu,addr,ACC_LOAD);
+
     //printf("load funct3:%d\n",funct3);
     switch (funct3)
     {
@@ -1139,10 +1184,20 @@ void exec_load(CPU_State *cpu,uint32_t instruction){
         load_lbu(cpu,addr,rd);
        // printf("lbu rd:%d,addr:0x%08x,val:0x%08x",rd,addr,cpu->gpr[rd]);
         break;
-    case 0x5:
-    
+    case 0b101://lhu
+
+        uint64_t data = bus_read(&cpu->bus,addr,2);
+        uint64_t val = data & 0xFFFF;
+        if(rd != 0){
+            cpu->gpr[rd] = val;
+        }
+        if(log_enable){
+            printf("[lhu] x[rd:%d]:0x%08lx,addr:0x%08lx\n",rd,cpu->gpr[rd],addr
+            );
+        }
         break;
     case 0b110: //lwu
+    {
         uint32_t val = 0;
         
         val = bus_read(&cpu->bus,addr,4);
@@ -1151,6 +1206,7 @@ void exec_load(CPU_State *cpu,uint32_t instruction){
             cpu->gpr[rd] = val;
         }
         break;
+    }
     default:
         break;
     }
@@ -1444,6 +1500,8 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
     uint8_t aq = (instr >> 26) & 0x1;
     uint8_t funct7 = (instr >> 27) & 0x1F;
 
+    uint64_t addr = get_pa(cpu,cpu->gpr[rs1],ACC_STORE);
+
     if(funct3 == 0b010){ // .w
         switch (funct7)
         {
@@ -1453,8 +1511,8 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
                     printf("addr error\n");
                     return;
                 }
-                uint32_t tmp = bus_read(&cpu->bus,cpu->gpr[rs1],4);
-                bus_write(&cpu->bus,cpu->gpr[rs1],cpu->gpr[rs2],4);
+                uint32_t tmp = bus_read(&cpu->bus,addr,4);
+                bus_write(&cpu->bus,addr,cpu->gpr[rs2],4);
                 cpu->gpr[rd] = tmp;
                 cpu->pc += 4;
                 if(log_enable){
@@ -1466,7 +1524,7 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
             }
         case 0b00000: //amoadd.w
         {
-            uint64_t addr = cpu->gpr[rs1];
+            
             uint64_t val = cpu->gpr[rs2];
             uint64_t old_val = 0;
             
