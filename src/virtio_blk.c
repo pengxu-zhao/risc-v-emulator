@@ -6,13 +6,15 @@
 #include "plic.h"
 #include "memory.h"
 extern uint8_t* memory;
+// 全局设备实例
+virtio_blk_device dev;
 
 static void inline phys_write(uint64_t addr,uint64_t value, uint8_t size){
-    memory_write(&memory,addr,value,size);
+    memory_write(memory,addr,value,size);
 }
 
 static uint64_t inline phys_read(uint64_t addr,uint8_t size){
-    return memory_read(&memory,addr,size);
+    return memory_read(memory,addr,size);
 }
 
 uint8_t* phys_read_raw(uint64_t addr) {
@@ -64,12 +66,20 @@ void virtio_blk_init(const char *disk_image_path) {
     if (size % 512 != 0) {
         fprintf(stderr, "Warning: disk image size not multiple of 512\n");
     }
-
+    dev.driver_addr = 0x10001000ULL;  // VirtIO MMIO 基址，必须！
+    dev.queue_num = 8;                // xv6 NUM=8
+    dev.queue_ready = false;          // 初始化未完成，等 xv6 配置
+    dev.desc_addr = 0;
+   
+    dev.device_addr = 0;
+    
     printf("virtio-blk: loaded %s, %lu sectors\n", disk_image_path, dev.disk_size_sectors);
 }
 
 // 读取 avail ring 中的 next idx
 static uint16_t get_avail_idx() {
+
+    printf("[get_avail_idx] driver_addr:0x%08lx\n",dev.driver_addr);
     uint16_t idx = phys_read(dev.driver_addr + 2, 2);  // avail->idx (uint16_t offset 2)
     return idx;
 }
@@ -95,10 +105,12 @@ static void complete_request(uint16_t desc_idx, uint8_t status) {
 // 处理队列中的所有请求
 static void process_queue() {
     if (!dev.queue_ready) return;
-
+    printf("ready:%d\n",dev.queue_ready);
+    printf("driver_addr:0x%08lx\n",dev.driver_addr);
     uint16_t last_avail = get_avail_idx();
 
     static uint16_t prev_avail = 0;
+    printf("last_avail:0x%08lx\n",last_avail);
     while (prev_avail != last_avail) {
         uint16_t avail_idx = prev_avail % dev.queue_num;
         uint16_t desc_idx = phys_read(dev.driver_addr + 4 + avail_idx * 2, 2);  // avail->ring[]
@@ -112,7 +124,7 @@ static void process_queue() {
 
         uint16_t req_flags = phys_read(desc_base + 8, 2);
         uint32_t req_len   = phys_read(desc_base + 12, 4);
-
+        printf("req_flags:%d\n",req_flags);
         if (req_flags & 2) {  // VRING_DESC_F_NEXT
             // 读取请求
             virtio_blk_req req;
@@ -132,7 +144,9 @@ static void process_queue() {
             }
 
             // 写 status = 0 (OK)
+            printf("[process queue] addr:0x%08lx\n",stat_addr);
             phys_write(stat_addr, 0, 1);
+            printf("[222process queue] addr:0x%08lx\n",stat_addr);
         }
 
         complete_request(desc_idx, 0);
@@ -142,7 +156,7 @@ static void process_queue() {
 }
 
 uint32_t virtio_mmio_read(void *opaque,uint64_t offset,uint8_t size) {
-    printf("[virtio_mmio_read] offset:0x%08lx\n",offset);
+  //  printf("[virtio_mmio_read] offset:0x%08lx\n",offset);
     switch (offset) {
         case 0x000: return 0x74726976;            // MagicValue
         case 0x004: return 2;                     // Version (modern)
@@ -166,6 +180,7 @@ uint32_t virtio_mmio_read(void *opaque,uint64_t offset,uint8_t size) {
 }
 
 void virtio_mmio_write(void *opaque,uint64_t offset, uint32_t value,uint8_t size) {
+    printf("[mmio write]driver_addr:0x%08lx\n",dev.driver_addr);
     switch (offset) {
         case 0x038: // QueueNum
             dev.queue_num = value;
@@ -176,6 +191,7 @@ void virtio_mmio_write(void *opaque,uint64_t offset, uint32_t value,uint8_t size
             if (dev.queue_ready) dev.last_used_idx = 0;
             break;
         case 0x050:// QueueNotify
+            printf("[0x050]driver_addr:0x%08lx\n",dev.driver_addr);
             if (value == 0) process_queue();
             break;
         case 0x070: 
@@ -191,16 +207,20 @@ void virtio_mmio_write(void *opaque,uint64_t offset, uint32_t value,uint8_t size
 
         case 0x090: // QueueDriverLow (avail ring)
             dev.driver_addr = (dev.driver_addr & ~0xffffffffULL) | value;
+            printf("[0x90]dev.driver_addr:0x%08lx, value:0x%08lx\n",dev.driver_addr,value);
             break;
         case 0x094: // QueueDriverHigh
             dev.driver_addr = (dev.driver_addr & 0xffffffffULL) | ((uint64_t)value << 32);
+            printf("[0x94]dev.driver_addr:0x%08lx, value:0x%08lx\n",dev.driver_addr,value);
             break;
 
         case 0x0a0: // QueueDeviceLow (used ring)
             dev.device_addr = (dev.device_addr & ~0xffffffffULL) | value;
+            printf("[0xa0]dev.driver_addr:0x%08lx, value:0x%08lx\n",dev.driver_addr,value);
             break;
         case 0x0a4: // QueueDeviceHigh
             dev.device_addr = (dev.device_addr & 0xffffffffULL) | ((uint64_t)value << 32);
+            printf("[0xa4]dev.driver_addr:0x%08lx, value:0x%08lx\n",dev.driver_addr,value);
             break;
 
         // 忽略所有其他写，包括可能的 InterruptACK (xv6 不写)
