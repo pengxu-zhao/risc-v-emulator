@@ -65,7 +65,7 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
                 cpu->gpr[rd] = val;
             }
             if(log_enable){
-                printf("[c.lw] x[%d]:0x%08lx, pa:0x%08lx\n",rd,val,PRIdFAST32);
+                printf("[c.lw] x[%d]:0x%08lx, pa:0x%08lx\n",rd,val,pa);
             }
             cpu->pc += 2;
             break;
@@ -1051,12 +1051,45 @@ void exec_mret(CPU_State* cpu,uint32_t instr){
    
     uint64_t mie = (cpu->csr[CSR_MSTATUS] & MSTATUS_MIE); //机器模式中断全局使能
     uint64_t mpie = cpu->csr[CSR_MSTATUS] & MSTATUS_MPIE ;//在进入异常（Trap）之前的 MIE 值
-    uint64_t mpp = cpu->csr[CSR_MSTATUS] & MSTATUS_MPP_MASK;//进入机器模式异常之前的特权级别
+    uint64_t mpp = (cpu->csr[CSR_MSTATUS] >> 11) & 0x3;//进入机器模式异常之前的特权级别
 
-    cpu->csr[CSR_MSTATUS] |= (mpie >> 4);
-    cpu->csr[CSR_MSTATUS] |= MSTATUS_MPIE;    
-    cpu->privilege = (mpp >> 11);
-    cpu->csr[CSR_MSTATUS] &= ~MSTATUS_MPP_MASK; //0x3FF
+
+    if(log_enable){
+        printf("mpp:%d,mstatus:0x%08lx\n",mpp,cpu->csr[CSR_MSTATUS]);
+    }
+
+    uint64_t mstatus = cpu->csr[CSR_MSTATUS];
+
+    if(mstatus & MSTATUS_MPIE){
+        mstatus |= MSTATUS_MIE;
+    }else{
+        mstatus &= ~MSTATUS_MIE;
+    }
+
+    mstatus |= MSTATUS_MPIE;     
+    switch (mpp)
+    {
+    case 0:
+        cpu->privilege = 0;
+        break;
+    case 1:
+        cpu->privilege = 1;
+        break;
+    case 3:
+        cpu->privilege = 3;
+        break;
+    default:
+        break;
+    }
+
+    if(log_enable){
+        printf("mpp:%d,cpu->privilege:%d\n",mpp,cpu->privilege);
+    }
+
+    mstatus &= ~MSTATUS_MPP_MASK; 
+    mstatus |= (0 << MSTATUS_MPP_SHIFT);
+
+    cpu->csr[CSR_MSTATUS] = mstatus;
     cpu->pc = cpu->csr[CSR_MEPC];
    
 }
@@ -1220,8 +1253,7 @@ void exec_slli(CPU_State* cpu,uint32_t instr){
     */
     uint8_t rd = (instr >> 7) & 0x1F;
     uint8_t rs1 = (instr >> 15) & 0x1F;
-    uint8_t shamt = (instr >> 20) & 0x1F;
-
+    uint8_t shamt = (instr >> 20) & 0x3F;
     if(rd != 0){
         cpu->gpr[rd] = cpu->gpr[rs1] << shamt;
     }
@@ -1409,7 +1441,7 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
             }
             cpu->csr[csr] = cpu->gpr[rs1];
             if(log_enable){
-            printf("[csrrw] x[%d]:0x%16lx,x[%d]:0x%16lx,csr[0x%08x]:0x%16lx\n",
+            printf("[csrrw] x[rd:%d]:0x%16lx,x[rs1:%d]:0x%16lx,csr[0x%08x]:0x%16lx\n",
                         rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],csr,cpu->csr[csr]);
             }
          
@@ -1423,7 +1455,7 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
                 cpu->csr[csr] |= cpu->gpr[rs1];
             }
             if(log_enable){
-            printf("[csrrs] x[%d]:0x%16lx,csr[0x%08x] |= x[%d]:0x%16lx,val = 0x%16lx\n ",
+            printf("[csrrs] x[rd:%d]:0x%16lx,csr[0x%08x] |= x[rs1:%d]:0x%16lx,val = 0x%16lx\n ",
                             rd,cpu->gpr[rd],csr,rs1,cpu->gpr[rs1],cpu->csr[csr]);
             }
 
