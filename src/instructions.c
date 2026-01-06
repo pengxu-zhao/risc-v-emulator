@@ -1766,6 +1766,47 @@ void exec_3b(CPU_State* cpu,uint32_t instr){
         printf("[sllw] x[%d]:0x%08x,x[%d]:0x%08x,imm:0x%16lx\n",
                rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],imm);
         }
+    }else if(funct7 == 1 && funct3 == 0b111){ //remuw
+        uint32_t divided = (uint32_t)(cpu->gpr[rs1]);
+        uint32_t divisor = (uint32_t)(cpu->gpr[rs2]);
+        uint32_t value = 0;
+        if(divisor == 0){
+            value = divided;
+        }else{
+            value = (divided % divisor);
+        }
+
+        int64_t  result = (int64_t)(int32_t)value;
+        if(rd != 0){
+            cpu->gpr[rd] = result;
+        }
+        cpu->pc += 4;
+
+        if(log_enable){
+            printf("[remuw] divided(rs1:%d):0x%08lx divisor(rs2:%d):0x%08lx,val(rd:%d):0x%08lx\n",
+                rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],rd,result);
+        }
+    }else if(funct7 == 1 && funct3 == 0b101){ //divuw
+        uint32_t divided = (uint32_t)(cpu->gpr[rs1]);
+        uint32_t divisor = (uint32_t)(cpu->gpr[rs2]);
+        uint32_t value = 0;
+
+        if(divisor == 0){
+            value = 0xFFFFFFFF;
+        }else{
+            value = (divided / divisor);
+        }
+
+        int64_t result = (int64_t)(int32_t)value;
+        if(rd != 0){
+            cpu->gpr[rd] = result;
+        }
+        cpu->pc += 4;
+
+        if(log_enable){
+            printf("[divuw] divided(rs1:%d):0x%08lx divisor(rs2:%d):0x%08lx,val(rd:%d):0x%08lx\n",
+                rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],rd,result);
+        }
     }
 }
 
