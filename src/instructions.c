@@ -12,9 +12,9 @@ extern uint8_t* memory;
 extern int log_enable;
 
 static inline print_all_gpr(CPU_State* cpu){
-    printf("x0~x31 value=========================\n");
+    fprintf(stderr,"x0~x31 value=========================\n");
     for(uint8_t i = 0; i < 32; i++){
-        printf("x[%d]:0x%016lx\n",i,cpu->gpr[i]);
+        fprintf(stderr,"x[%d]:0x%016lx\n",i,cpu->gpr[i]);
     }
 }
 
@@ -44,7 +44,7 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
             }               
             cpu->pc += 2;
             if(log_enable){
-            printf("[c.addi4spn] sp:0x%16lx + imm:0x%16lx,x[%d]:0x%16lx\n",
+            fprintf(stderr,"[c.addi4spn] sp:0x%16lx + imm:0x%16lx,x[%d]:0x%16lx\n",
                         cpu->gpr[2],imm10,rd,cpu->gpr[rd]);
             }
             break;
@@ -65,7 +65,7 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
                 cpu->gpr[rd] = val;
             }
             if(log_enable){
-                printf("[c.lw] x[%d]:0x%08lx, pa:0x%08lx\n",rd,val,pa);
+                fprintf(stderr,"[c.lw] x[%d]:0x%08lx, pa:0x%08lx\n",rd,val,pa);
             }
             cpu->pc += 2;
             break;
@@ -82,7 +82,7 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
         uint64_t pa = get_pa(cpu,addr,ACC_STORE);
         bus_write(&cpu->bus,pa,cpu->gpr[rs2],4);
         if(log_enable)
-            printf("[c.sw after] imm:0x%08lx,pa:0x%08x,rs2 val:%d 0x%08x\n",imm,pa,rs2,cpu->gpr[rs2]);
+            fprintf(stderr,"[c.sw after] imm:0x%08lx,pa:0x%08x,rs2 val:%d 0x%08x\n",imm,pa,rs2,cpu->gpr[rs2]);
         cpu->pc += 2;
         break;
     }
@@ -100,7 +100,7 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
         bus_write(&cpu->bus,pa,cpu->gpr[rs2],8);
         cpu->pc += 2;
         if(log_enable){
-        printf("[c.sd] x[%d]:0x%16lx,pa:0x%16lx,x[%d]:0x%16lx\n",
+        fprintf(stderr,"[c.sd] x[%d]:0x%16lx,pa:0x%16lx,x[%d]:0x%16lx\n",
             rs1,cpu->gpr[rs1],pa,rs2,cpu->gpr[rs2]);
         }
         break;
@@ -123,7 +123,7 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
         cpu->gpr[rd] = val;
         cpu->pc += 2;
         if(log_enable){
-            printf("[c.ld load 64bits] x[%d]:0x%16lx = load from pa:0x%16lx\n",
+            fprintf(stderr,"[c.ld load 64bits] x[%d]:0x%16lx = load from pa:0x%16lx\n",
                 rd,cpu->gpr[rd],pa);
         }
         break;
@@ -159,7 +159,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
             }
 
             if(log_enable){
-            printf("[c.addi] x[%d]:0x%16lx,imm:0x%16lx\n",rd,cpu->gpr[rd],imm);
+            fprintf(stderr,"[c.addi] x[%d]:0x%16lx,imm:0x%16lx\n",rd,cpu->gpr[rd],imm);
             }
                
             cpu->pc += 2;  // 压缩指令 PC +2   
@@ -174,13 +174,13 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
                             ((instr >> 2) & 0x1F);
             int32_t imm = ((int32_t)imm6 << 26) >>26;
             if(log_enable){
-            printf("[before c.addiw] x[%d]:0x%16lx,imm:0x%08x\n",rd,cpu->gpr[rd],imm);
+            fprintf(stderr,"[before c.addiw] x[%d]:0x%16lx,imm:0x%08x\n",rd,cpu->gpr[rd],imm);
             }
             int64_t result = (int64_t)((int64_t)cpu->gpr[rd] + imm);
             cpu->gpr[rd] = result;
             cpu->pc += 2;
             if(log_enable){
-            printf("[c.addiw] x[%d]:0x%16lx,imm:0x%08x\n",rd,cpu->gpr[rd],imm);
+            fprintf(stderr,"[c.addiw] x[%d]:0x%16lx,imm:0x%08x\n",rd,cpu->gpr[rd],imm);
             }
         }
         else //c.jal
@@ -210,7 +210,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
         }
 
         if(log_enable){
-        printf("[c.li] x[%d]:0x%16lx = imm:0x%16lx\n",rd,cpu->gpr[rd],imm);
+        fprintf(stderr,"[c.li] x[%d]:0x%16lx = imm:0x%16lx\n",rd,cpu->gpr[rd],imm);
         }
         cpu->pc += 2;
         break;
@@ -227,7 +227,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
                 if(rd != 0 && rd != 0x2)
                     cpu->gpr[rd] = imm;
                 if(log_enable){
-                printf("[c.lui] x[%d]:0x%016lx\n",rd,cpu->gpr[rd]);
+                fprintf(stderr,"[c.lui] x[%d]:0x%016lx\n",rd,cpu->gpr[rd]);
                 }
                 cpu->pc += 2;
             }else{ // c.addi16sp
@@ -241,7 +241,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
                 cpu->gpr[rd] += imm; 
                 cpu->pc += 2;
                 if(log_enable){
-                    printf("[c.addi16sp] x[rd:%d]:0x%08lx,imm:0x%16lx\n",
+                    fprintf(stderr,"[c.addi16sp] x[rd:%d]:0x%08lx,imm:0x%16lx\n",
                         rd,cpu->gpr[rd],imm);
                 }
 
@@ -261,20 +261,20 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
             cpu->gpr[rd] >>= shamt;
             cpu->pc += 2;
             if(log_enable){
-            printf("[c.srli] x[%d]:0x%16lx\n",rd,cpu->gpr[rd]);
+            fprintf(stderr,"[c.srli] x[%d]:0x%16lx\n",rd,cpu->gpr[rd]);
             }
             
         }else if(funct2_10_11 == 0b01){//c.srai c.srai64
             uint8_t shamt = (instr >> 2) & 0x1F | 
                             (((instr >> 12) & 0x1) << 5);
              if(log_enable){
-                printf("[before c.srai] x[%d]:0x%08lx,shamt:%d\n",rd,cpu->gpr[rd],shamt);
+                fprintf(stderr,"[before c.srai] x[%d]:0x%08lx,shamt:%d\n",rd,cpu->gpr[rd],shamt);
             }
 
 
             cpu->gpr[rd] = (int64_t)cpu->gpr[rd] >> shamt;
             if(log_enable){
-                printf("[after c.srai] x[%d]:0x%08lx,shamt:%d\n",rd,cpu->gpr[rd],shamt);
+                fprintf(stderr,"[after c.srai] x[%d]:0x%08lx,shamt:%d\n",rd,cpu->gpr[rd],shamt);
 
             }
 
@@ -287,7 +287,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
             cpu->gpr[rd] &= imm;
 
             if(log_enable){
-                printf("x[%d]:0x%08lx,imm:0x%08lx\n",rd,cpu->gpr[rd],imm);
+                fprintf(stderr,"x[%d]:0x%08lx,imm:0x%08lx\n",rd,cpu->gpr[rd],imm);
             }
 
             cpu->pc += 2;
@@ -297,13 +297,13 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
                 cpu->gpr[rd] &= cpu->gpr[rs2];
                 cpu->pc += 2; 
                 if(log_enable){
-                printf("[c.and] x[%d]:0x%16lx,x[%d]:0x%16lx\n",rd,cpu->gpr[rd],
+                fprintf(stderr,"[c.and] x[%d]:0x%16lx,x[%d]:0x%16lx\n",rd,cpu->gpr[rd],
                 rs2,cpu->gpr[rs2]);
                 }
             }else if(funct2_56 == 0b10){ //c.or
                 cpu->gpr[rd] |= cpu->gpr[rs2];
                 if(log_enable){
-                    printf("[c.or] x[%d]:0x%16lx |= x[%d]:0x%16lx\n",
+                    fprintf(stderr,"[c.or] x[%d]:0x%16lx |= x[%d]:0x%16lx\n",
                         rd,cpu->gpr[rd],rs2,cpu->gpr[rs2]);
                 }
 
@@ -333,7 +333,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
             int64_t imm = (int64_t)(((int32_t)imm11 << 20) >> 20);
             cpu->pc += imm;
             if(log_enable){
-            printf("[c.j] imm:0x%16lx\n");
+            fprintf(stderr,"[c.j] imm:0x%16lx\n");
             }
             break;
         }
@@ -346,7 +346,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
                         ((instr >> 12) & 0x1) << 8 ;
         int64_t imm = (int64_t)(((int32_t)imm8 << 23) >> 23);
         uint8_t rs1 = ((instr >> 7) & 0x7) + 8;
-        //printf("-----a5:0x%08x\n",cpu->gpr[15]);
+        //fprintf(stderr,"-----a5:0x%08x\n",cpu->gpr[15]);
 
         if(cpu->gpr[rs1] != 0){
             cpu->pc += imm;
@@ -354,7 +354,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
             cpu->pc += 2;
         }
         if(log_enable){
-        printf("[c.bnez]x[%d]:0x%16lx,imm:0x%16lx\n",rs1,cpu->gpr[rs1],imm);
+        fprintf(stderr,"[c.bnez]x[%d]:0x%16lx,imm:0x%16lx\n",rs1,cpu->gpr[rs1],imm);
         }
 
         break;
@@ -374,7 +374,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
             cpu->pc += 2;
         }
         if(log_enable){
-        printf("[c.beqz]x[%d]:0x%16lx, imm:0x%16lx\n",rs1,cpu->gpr[rs1],imm);
+        fprintf(stderr,"[c.beqz]x[%d]:0x%16lx, imm:0x%16lx\n",rs1,cpu->gpr[rs1],imm);
         }
 
         break;
@@ -404,7 +404,7 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         }
         cpu->pc += 2;
         if(log_enable){
-        printf("[c.slli] shamt:0x%08x, x[%d]:0x%16lx\n",shamt,rd,cpu->gpr[rd]);
+        fprintf(stderr,"[c.slli] shamt:0x%08x, x[%d]:0x%16lx\n",shamt,rd,cpu->gpr[rd]);
         }
 
 
@@ -423,7 +423,7 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
             cpu->gpr[rd] = bus_read(&cpu->bus,pa,4);
         }
         if(log_enable){
-            printf("[c.lwsp]imm:0x%08x,pa:0x%08x,ra:0x%08x\n",imm,pa,cpu->gpr[rd]);
+            fprintf(stderr,"[c.lwsp]imm:0x%08x,pa:0x%08x,ra:0x%08x\n",imm,pa,cpu->gpr[rd]);
         }
         cpu->pc += 2;
         break;
@@ -444,7 +444,7 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         cpu->gpr[rd] = val;
         cpu->pc += 2;
         if(log_enable){
-            printf("[c.ldsp] x[%d]:0x%16lx,vaddr:0x%16lx,pa:0x%08lx\n",rd,cpu->gpr[rd],vaddr,pa);
+            fprintf(stderr,"[c.ldsp] x[%d]:0x%16lx,vaddr:0x%16lx,pa:0x%08lx\n",rd,cpu->gpr[rd],vaddr,pa);
         }
         break;
     }
@@ -461,7 +461,7 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
 
         bus_write(&cpu->bus,pa,cpu->gpr[rs2],4);
         if(log_enable){
-            printf("c.swsp pa : 0x%08x ,rs2 val:%d 0x%08x\n",pa,rs2,cpu->gpr[rs2]);
+            fprintf(stderr,"c.swsp pa : 0x%08x ,rs2 val:%d 0x%08x\n",pa,rs2,cpu->gpr[rs2]);
         }
         cpu->pc += 2;
         break;
@@ -472,17 +472,17 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         if(rs2 == 0){ 
             if(instr12 == 0){ //c.jr
                 if(rs1 != 0){
-                    //printf("c.jr rs1:0x%08x\n",cpu->gpr[rs1]);
+                    //fprintf(stderr,"c.jr rs1:0x%08x\n",cpu->gpr[rs1]);
                     cpu->pc = cpu->gpr[rs1];
                 }
                 if(log_enable){
-                printf("[c.jr c.ret] pc = x[%d]:0x%16lx\n",rs1,cpu->gpr[rs1]);
+                fprintf(stderr,"[c.jr c.ret] pc = x[%d]:0x%16lx\n",rs1,cpu->gpr[rs1]);
                 }
             }else{ //c.jalr   
                 cpu->gpr[0x1] = cpu->pc+2;
                 cpu->pc = cpu->gpr[rs1];
                 if(log_enable){
-                printf("[c.jarl or c.ret] x[0x1]:0x%16lx,pc = x[%d]:0x%16lx\n",
+                fprintf(stderr,"[c.jarl or c.ret] x[0x1]:0x%16lx,pc = x[%d]:0x%16lx\n",
                         cpu->gpr[0x1],rs1,cpu->gpr[rs1]);
                 } 
 
@@ -493,18 +493,18 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
                 cpu->pc += 2;
 
             if(log_enable){
-            printf("[c.mv] x[%d]:0x%16lx,x[%d]:0x%16lx\n",rs1,cpu->gpr[rs1],
+            fprintf(stderr,"[c.mv] x[%d]:0x%16lx,x[%d]:0x%16lx\n",rs1,cpu->gpr[rs1],
                     rs2,cpu->gpr[rs2]);
             }
             }else{ //c.add
                 if(log_enable){
-                printf("[before c.add] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx\n",
+                fprintf(stderr,"[before c.add] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx\n",
                 rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
                 }
                 cpu->gpr[rd] = cpu->gpr[rs1] + cpu->gpr[rs2];
                 cpu->pc += 2;
             if(log_enable){
-            printf("[c.add] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx\n",
+            fprintf(stderr,"[c.add] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx\n",
                 rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
             }
             }
@@ -527,7 +527,7 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         
         cpu->pc += 2;
         if(log_enable){
-        printf("[c.sdsp] addr:0x%16lx,pa:0x%08lx,x[%d]:0x%16lx\n",vaddr,pa,rs2,cpu->gpr[rs2]);
+        fprintf(stderr,"[c.sdsp] addr:0x%16lx,pa:0x%08lx,x[%d]:0x%16lx\n",vaddr,pa,rs2,cpu->gpr[rs2]);
         }
 
         
@@ -569,7 +569,7 @@ void exec_addi(CPU_State* cpu,uint32_t instruction){
         cpu->gpr[rd] = cpu->gpr[rs1] + imm;
     }
     if(log_enable){
-    printf("[addi] x[%d]:0x%16lx = x[%d]:0x%16lx + imm:0x%16lx\n",
+    fprintf(stderr,"[addi] x[%d]:0x%16lx = x[%d]:0x%16lx + imm:0x%16lx\n",
             rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],imm);
     }
     
@@ -592,7 +592,7 @@ void exec_lui(CPU_State* cpu, uint32_t instruction) {
         cpu->gpr[rd] = imm;
     }
     if(log_enable){
-    printf("[lui] x[%d] = imm:0x%16lx\n",rd,cpu->gpr[rd]);
+    fprintf(stderr,"[lui] x[%d] = imm:0x%16lx\n",rd,cpu->gpr[rd]);
     }
 
     cpu->pc += 4;
@@ -613,7 +613,7 @@ void exec_auipc(CPU_State* cpu, uint32_t instruction) {
     }
     
     if(log_enable){
-    printf("[auipc] x[%d]:0x%16lx,imm:0x%08x\n",rd,cpu->gpr[rd],imm);
+    fprintf(stderr,"[auipc] x[%d]:0x%16lx,imm:0x%08x\n",rd,cpu->gpr[rd],imm);
 
     }
 
@@ -642,7 +642,7 @@ void exec_jal(CPU_State* cpu, uint32_t instruction) {
     }
 
     if(log_enable){
-    printf("[jal] x[%d]:0x%16lx\n",rd,cpu->pc+4);
+    fprintf(stderr,"[jal] x[%d]:0x%16lx\n",rd,cpu->pc+4);
 
     }
     cpu->pc += imm;
@@ -671,7 +671,7 @@ void exec_jalr(CPU_State* cpu, uint32_t instruction){
     } 
 
     if(log_enable){
-    printf("[jalr/jr] x[%d]:0x%16lx,pa:0x%16lx\n",rd,cpu->gpr[rd],addr);
+    fprintf(stderr,"[jalr/jr] x[%d]:0x%16lx,pa:0x%16lx\n",rd,cpu->gpr[rd],addr);
     }
 
     cpu->pc = addr;
@@ -689,7 +689,7 @@ void exec_add(CPU_State* cpu, uint32_t instruction) {
     }
 
     if(log_enable){
-        printf("[add] x[%d]:0x%16lx = x[%d]:0x%16lx + x[%d]:0x%16lx\n",
+        fprintf(stderr,"[add] x[%d]:0x%16lx = x[%d]:0x%16lx + x[%d]:0x%16lx\n",
                     rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
     }
 
@@ -704,10 +704,25 @@ void exec_xor(CPU_State* cpu,uint32_t instr){
         cpu->gpr[rd] = cpu->gpr[rs1] ^ cpu->gpr[rs2];
     }
     if(log_enable){
-        printf("[xor] x[%d]:0x%16lx = x[%d]:0x%16lx + x[%d]:0x%16lx\n",
+        fprintf(stderr,"[xor] x[%d]:0x%16lx = x[%d]:0x%16lx + x[%d]:0x%16lx\n",
                     rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
     }
     cpu->pc += 4;
+}
+
+void exec_xori(CPU_State* cpu,uint32_t instr){
+    uint8_t rs1 = (instr >> 15) & 0x1F;
+    uint8_t rd = (instr >> 7) & 0x1F;
+    int64_t imm = (int64_t)(((int32_t)(instr >> 20) << 20) >> 20) ;
+
+    if(rd != 0){
+        cpu->gpr[rd] = cpu->gpr[rs1] ^ imm;
+    }
+    if(log_enable){
+        printf("[xori] x[rd:%d]:0x%16lx,x[rs1:%d]:0x%16lx,imm:0x%16lx\n",
+                rd,cpu->gpr[rd],rs1,cpu->gpr[rs1,imm]);
+    }
+
 }
 
 void exec_sub(CPU_State* cpu, uint32_t instruction){
@@ -719,7 +734,7 @@ void exec_sub(CPU_State* cpu, uint32_t instruction){
         cpu->gpr[rd] = (uint64_t)((int64_t)cpu->gpr[rs1] - (int64_t)cpu->gpr[rs2]);
     }
     if(log_enable){
-    printf("[sub] x[%d]:0x%16lx = x[%d]:0x%16lx - x[%d]:0x%16lx\n",
+    fprintf(stderr,"[sub] x[%d]:0x%16lx = x[%d]:0x%16lx - x[%d]:0x%16lx\n",
             rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
     }
 
@@ -737,7 +752,7 @@ void exec_sltu(CPU_State* cpu,uint32_t instruction){
     }
 
     if(log_enable){
-        printf("[sltu] x[%d]:0x%16lx = x[%d]:0x%16lx < x[%d]:0x%16lx ?\n",
+        fprintf(stderr,"[sltu] x[%d]:0x%16lx = x[%d]:0x%16lx < x[%d]:0x%16lx ?\n",
                     rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
     }
 
@@ -756,7 +771,7 @@ void exec_bge(CPU_State* cpu,uint32_t instr){
     int64_t imm = (int64_t)(((int32_t)imm12 << 19) >> 19);
 
     cpu->pc = cpu->gpr[rs1] >= cpu->gpr[rs2] ? cpu->pc + imm :cpu->pc + 4;
-    //printf("-------- a5:0x%08x a4:0x%08x\n",cpu->gpr[rs1],cpu->gpr[rs2]);
+    //fprintf(stderr,"-------- a5:0x%08x a4:0x%08x\n",cpu->gpr[rs1],cpu->gpr[rs2]);
 }
 
 void exec_bgeu(CPU_State* cpu,uint32_t instr){
@@ -773,7 +788,7 @@ void exec_bgeu(CPU_State* cpu,uint32_t instr){
 
     uint32_t m = m12 | m11 | m10_5 | m4_1;
     if(log_enable){
-    printf("m12:0x%16lx,m11:0x%16lx,m10_5:0x%16lx,m4_1:0x%16lx,m:0x%16lx\n",
+    fprintf(stderr,"m12:0x%16lx,m11:0x%16lx,m10_5:0x%16lx,m4_1:0x%16lx,m:0x%16lx\n",
             m12,m11,m10_5,m4_1,m);
     }
 
@@ -785,9 +800,9 @@ void exec_bgeu(CPU_State* cpu,uint32_t instr){
         cpu->pc += 4;
     }
     if(log_enable){
-    printf("[bgeu] x[%d]:0x%16lx >= x[%d]:0x%16lx\n ",rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
-    printf("[bgeu] imm12:0x%08x,imm:0x%16lx\n",imm12,imm);
-    printf("[bgeu >= jmp] pc:0x%16lx\n",cpu->pc);
+    fprintf(stderr,"[bgeu] x[%d]:0x%16lx >= x[%d]:0x%16lx\n ",rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
+    fprintf(stderr,"[bgeu] imm12:0x%08x,imm:0x%16lx\n",imm12,imm);
+    fprintf(stderr,"[bgeu >= jmp] pc:0x%16lx\n",cpu->pc);
 
     }
 }
@@ -803,7 +818,7 @@ void exec_blt(CPU_State* cpu,uint32_t instr){
     int64_t imm = (int64_t)( ((int32_t)imm12 << 20) >> 20);
     cpu->pc = ((int64_t)cpu->gpr[rs1] < (int64_t)cpu->gpr[rs2]) ? cpu->pc+imm:cpu->pc+4;
     if(log_enable){
-    printf("[blt] x[%d]:0x%16lx < x[%d]:0x%16lx\n",rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
+    fprintf(stderr,"[blt] x[%d]:0x%16lx < x[%d]:0x%16lx\n",rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
     }
 
 }
@@ -819,17 +834,17 @@ void exec_bltu(CPU_State* cpu,uint32_t instr){
     uint8_t rs2 = (instr >> 20) & 0x1F;
    
     uint32_t imm12 = (instr >> 31) << 12 |
-                ((instr >> 24) & 0x3F) << 5 |
+                ((instr >> 25) & 0x3F) << 5 |
                 ((instr >> 8 ) & 0xF) << 1 |
                 ((instr >> 7) & 0x1) << 11;
     
 
-    int64_t imm = (int64_t)( ((int32_t)imm12 << 20) >> 20);
+    int64_t imm = (int64_t)( ((int32_t)imm12 << 19) >> 19);
   
     cpu->pc = ((uint64_t)cpu->gpr[rs1] < (uint64_t)cpu->gpr[rs2]) ? cpu->pc+imm:cpu->pc+4;
    
     if(log_enable){
-        printf("x[%d]:0x%08lx < x[%d]:0x%08lx ? \n",rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
+        fprintf(stderr,"x[%d]:0x%08lx < x[%d]:0x%08lx ? \n",rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
     }
 
 }
@@ -854,8 +869,8 @@ void exec_bne(CPU_State* cpu,uint32_t instr){
         cpu->pc += 4;
     }
     if(log_enable){
-    printf("[bne not equal jal to pc+=imm] x[%d]:0x%16lx != x[%d]:0x%16lx\n",rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
-    printf("[bne] old pc:0x%16lx + imm: 0x%16lx]\n",cpu->pc,imm);
+    fprintf(stderr,"[bne not equal jal to pc+=imm] x[%d]:0x%16lx != x[%d]:0x%16lx\n",rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
+    fprintf(stderr,"[bne] old pc:0x%16lx + imm: 0x%16lx]\n",cpu->pc,imm);
     }
 
 
@@ -883,7 +898,7 @@ void exec_beq(CPU_State* cpu,uint32_t instr){
         cpu->pc += 4;
     }
     if(log_enable){
-    printf("[beq equal jal to pc+=imm] x[%d]:0x%16lx == x[%d]:0x%16lx\n",
+    fprintf(stderr,"[beq equal jal to pc+=imm] x[%d]:0x%16lx == x[%d]:0x%16lx\n",
         rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
     }
 
@@ -924,7 +939,7 @@ void exec_div(CPU_State* cpu,uint32_t instr){
     }
     cpu->pc += 4;
     if(log_enable){
-    printf("[div] x[%d]:0x%16lx = x[%d]:0x%16lx / x[%d]:0x%16lx\n",
+    fprintf(stderr,"[div] x[%d]:0x%16lx = x[%d]:0x%16lx / x[%d]:0x%16lx\n",
         rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
     }
 }
@@ -977,7 +992,7 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
     {
         cpu_store8(cpu, pa, (uint8_t)(value & 0xFF));
         if(log_enable){
-        printf("[Sb load 1 byte] x[%d]:0x%16lx + imm:0x%16lx = pa:0x%16lx,value = x[%d]:0x%16lx\n",
+        fprintf(stderr,"[Sb load 1 byte] x[%d]:0x%16lx + imm:0x%16lx = pa:0x%16lx,value = x[%d]:0x%16lx\n",
                rs1,cpu->gpr[rs1],imm,pa,rs2,cpu->gpr[rs2] );
         }
         break;
@@ -985,13 +1000,13 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
     case 0x1: //SH
         cpu_store16(cpu, pa, (uint16_t)(value & 0xFFFF));
         if(log_enable){
-            printf("[sh] pa:0x%08lx,val:0x%08lx\n",pa,(uint16_t)(value & 0xFFFF));
+            fprintf(stderr,"[sh] pa:0x%08lx,val:0x%08lx\n",pa,(uint16_t)(value & 0xFFFF));
         }
         break;
     case 0x2://SW
         cpu_store32(cpu, pa, value);
         if(log_enable){
-            printf("[exec_sw] pa:0x%08x,value:0x%08x,x[%d]:0x%16lx\n",pa,value,rs2,cpu->gpr[rs2]);
+            fprintf(stderr,"[exec_sw] pa:0x%08x,value:0x%08x,x[%d]:0x%16lx\n",pa,value,rs2,cpu->gpr[rs2]);
         }
         break;
 
@@ -999,9 +1014,9 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
     {
         cpu_store64(cpu, pa, (uint64_t)value);
         if(log_enable){
-        printf("[sd store 8bytes] x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%16lx\n",
+        fprintf(stderr,"[sd store 8bytes] x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%16lx\n",
                 rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],imm);
-        printf("[sd 8 bytes] pa:0x%08lx\n",pa);
+        fprintf(stderr,"[sd 8 bytes] pa:0x%08lx\n",pa);
         }
         break;
     }
@@ -1016,7 +1031,7 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
 
 // 系统调用（ECALL）指令 - 
 void exec_ecall(CPU_State* cpu, uint32_t instruction) {
-    //printf("ECALL instruction at PC: 0x%08x\n", cpu->pc);
+    //fprintf(stderr,"ECALL instruction at PC: 0x%08x\n", cpu->pc);
 
     // 这里可以处理系统调用
     /* 选择是从 U/S/M 发出的 ECALL：根据当前 privilege 设置 cause */
@@ -1027,8 +1042,8 @@ void exec_ecall(CPU_State* cpu, uint32_t instruction) {
     
  
     take_trap(cpu, cause, false);
-   // printf("exec_ecall cpu->pc:0x%08x\n",cpu->pc);
-   // printf("after take trap:%u\n",cpu->csr[CSR_MCAUSE]);
+   // fprintf(stderr,"exec_ecall cpu->pc:0x%08x\n",cpu->pc);
+   // fprintf(stderr,"after take trap:%u\n",cpu->csr[CSR_MCAUSE]);
     
     //cpu->pc += 4;   
 }
@@ -1055,7 +1070,7 @@ void exec_mret(CPU_State* cpu,uint32_t instr){
 
 
     if(log_enable){
-        printf("mpp:%d,mstatus:0x%08lx\n",mpp,cpu->csr[CSR_MSTATUS]);
+        fprintf(stderr,"mpp:%d,mstatus:0x%08lx\n",mpp,cpu->csr[CSR_MSTATUS]);
     }
 
     uint64_t mstatus = cpu->csr[CSR_MSTATUS];
@@ -1083,7 +1098,7 @@ void exec_mret(CPU_State* cpu,uint32_t instr){
     }
 
     if(log_enable){
-        printf("mpp:%d,cpu->privilege:%d\n",mpp,cpu->privilege);
+        fprintf(stderr,"mpp:%d,cpu->privilege:%d\n",mpp,cpu->privilege);
     }
 
     mstatus &= ~MSTATUS_MPP_MASK; 
@@ -1112,14 +1127,14 @@ void exec_sfencevma(CPU_State* cpu,uint32_t instruction){
             cpu->cpu_tlb.iTLB.entries[i].valid = false;
             cpu->cpu_tlb.dTLB.entries[i].valid = false;
         }
-        printf("[sfence] flush all TLB\n");
+        fprintf(stderr,"[sfence] flush all TLB\n");
     } else {
         // 其他情况暂不实现或简单 flush all
         for(int i = 0; i < TLB_SIZE; i++){
             cpu->cpu_tlb.iTLB.entries[i].valid = false;
             cpu->cpu_tlb.dTLB.entries[i].valid = false;
         }
-        printf("[sfence] unimplemented case, flush all anyway\n");
+        fprintf(stderr,"[sfence] unimplemented case, flush all anyway\n");
     }
     cpu->pc += 4;
    
@@ -1135,15 +1150,12 @@ static void load_lb(CPU_State* cpu,uint64_t addr,uint8_t rd){
 }
 static void load_lbu(CPU_State* cpu,uint64_t addr,uint8_t rd){
     uint32_t val = 0;
-
-
-
     val = (uint32_t)bus_read(&cpu->bus,addr,1);
     if(rd != 0){
         cpu->gpr[rd] = val;
     }
     if(log_enable){
-        printf("[lbu] x[%d]:0x%16lx,val:0x%16lx\n",rd,val);
+        fprintf(stderr,"[lbu] x[%d]:0x%16lx,val:0x%16lx,addr:0x%08lx\n",rd,val,addr);
     }
 }
 
@@ -1156,7 +1168,7 @@ static void load_lw(CPU_State* cpu,uint64_t addr,uint8_t rd){
         cpu->gpr[rd] = val;
     }
     if(log_enable){
-        printf("[lw] x[rd:%d]:0x%08lx,va:0x%08lx,pa:0x%08lx\n",
+        fprintf(stderr,"[lw] x[rd:%d]:0x%08lx,va:0x%08lx,pa:0x%08lx\n",
             rd,cpu->gpr[rd],addr,addr);
     }
 
@@ -1179,7 +1191,7 @@ void exec_load(CPU_State *cpu,uint32_t instruction){
 
     addr = get_pa(cpu,addr,ACC_LOAD);
 
-    //printf("load funct3:%d\n",funct3);
+    //fprintf(stderr,"load funct3:%d\n",funct3);
     switch (funct3)
     {
     case 0x0:
@@ -1192,8 +1204,8 @@ void exec_load(CPU_State *cpu,uint32_t instruction){
     case 0x2:
     {
         load_lw(cpu,addr,rd);
-       // printf("lw a5 val:0x%08x\n",cpu->gpr[15]);   
-        //printf("sp:0x%08x\n",cpu->gpr[8]);
+       // fprintf(stderr,"lw a5 val:0x%08x\n",cpu->gpr[15]);   
+        //fprintf(stderr,"sp:0x%08x\n",cpu->gpr[8]);
         
         break;
     }
@@ -1207,15 +1219,15 @@ void exec_load(CPU_State *cpu,uint32_t instruction){
         }
         
         if(log_enable){
-        printf("[ld load 8 bytes] x[%d]:0x%16lx,addr:0x%16lx\n",rd,
+        fprintf(stderr,"[ld load 8 bytes] x[%d]:0x%16lx,addr:0x%16lx\n",rd,
         cpu->gpr[rd],addr);
-        printf("[ld] rs1:%d,0x%16lx\n",rs1,cpu->gpr[rs1]);
+        fprintf(stderr,"[ld] rs1:%d,0x%16lx\n",rs1,cpu->gpr[rs1]);
         }
         break;
     }
     case 0b100:
         load_lbu(cpu,addr,rd);
-       // printf("lbu rd:%d,addr:0x%08x,val:0x%08x",rd,addr,cpu->gpr[rd]);
+       // fprintf(stderr,"lbu rd:%d,addr:0x%08x,val:0x%08x",rd,addr,cpu->gpr[rd]);
         break;
     case 0b101://lhu
 
@@ -1225,7 +1237,7 @@ void exec_load(CPU_State *cpu,uint32_t instruction){
             cpu->gpr[rd] = val;
         }
         if(log_enable){
-            printf("[lhu] x[rd:%d]:0x%08lx,addr:0x%08lx\n",rd,cpu->gpr[rd],addr
+            fprintf(stderr,"[lhu] x[rd:%d]:0x%08lx,addr:0x%08lx\n",rd,cpu->gpr[rd],addr
             );
         }
         break;
@@ -1258,7 +1270,7 @@ void exec_slli(CPU_State* cpu,uint32_t instr){
         cpu->gpr[rd] = cpu->gpr[rs1] << shamt;
     }
     if(log_enable){
-          printf("[slli] x[%d]:0x%16lx = x[%d]:0x%16lx << shamt:0x%08lx\n",
+          fprintf(stderr,"[slli] x[%d]:0x%16lx = x[%d]:0x%16lx << shamt:0x%08lx\n",
                     rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],shamt);
     }
 
@@ -1276,7 +1288,7 @@ void exec_slti(CPU_State* cpu,uint32_t instr){
     }
 
     if(log_enable){
-    printf("[slti] x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%16lx\n",
+    fprintf(stderr,"[slti] x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%16lx\n",
             rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],imm);
 
     }
@@ -1295,7 +1307,7 @@ void exec_sltiu(CPU_State* cpu,uint32_t instr){
     }
 
     if(log_enable){
-    printf("[sltiU] x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%16lx\n",
+    fprintf(stderr,"[sltiU] x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%16lx\n",
             rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],imm);
 
     }
@@ -1315,7 +1327,7 @@ void exec_si(CPU_State* cpu,uint32_t instr){
         if(rd != 0){
             cpu->gpr[rd] = (uint64_t)cpu->gpr[rs1] >> shamt; // 逻辑右移 SRLI
         if(log_enable){
-        printf("[srli] x[%d]:0x%16lx,x[%d]:0x%16lx\n",rd,cpu->gpr[rd],rs1,cpu->gpr[rs1]);
+        fprintf(stderr,"[srli] x[%d]:0x%16lx,x[%d]:0x%16lx\n",rd,cpu->gpr[rd],rs1,cpu->gpr[rs1]);
         }
         }
         break;
@@ -1340,7 +1352,7 @@ void exec_and(CPU_State* cpu,uint32_t instr){
         cpu->gpr[rd] = cpu->gpr[rs1] & cpu->gpr[rs2];
     }
     if(log_enable){
-        printf("[and] x[%d]:0x%16lx = x[%d]:0x%16lx + x[%d]:0x%16lx\n",
+        fprintf(stderr,"[and] x[%d]:0x%16lx = x[%d]:0x%16lx + x[%d]:0x%16lx\n",
                     rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
     }
 
@@ -1365,7 +1377,7 @@ void exec_or(CPU_State* cpu,uint32_t instr){
     cpu->gpr[0] = 0;
 
     if(log_enable){
-        printf("[or] x[%d]:0x%08lx = x[%d]:0x%08lx | x[%d]:0x%08lx\n",
+        fprintf(stderr,"[or] x[%d]:0x%08lx = x[%d]:0x%08lx | x[%d]:0x%08lx\n",
                 rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
     }
 
@@ -1391,7 +1403,7 @@ void exec_ori(CPU_State* cpu,uint32_t instr){
     cpu->pc += 4;
 
     if(log_enable){
-        printf("[ori] x[%d]:0x%08lx = x[%d]:0x%08lx | imm:0x%08lx\n",
+        fprintf(stderr,"[ori] x[%d]:0x%08lx = x[%d]:0x%08lx | imm:0x%08lx\n",
                 rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],imm);
     }
 
@@ -1411,7 +1423,7 @@ void exec_andi(CPU_State* cpu,uint32_t instr){ //zext.b  &0xff
         cpu->gpr[rd] = cpu->gpr[rs1] & imm;
     }
     if(log_enable){
-    printf("[andi] x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%16lx\n",rd,cpu->gpr[rd],
+    fprintf(stderr,"[andi] x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%16lx\n",rd,cpu->gpr[rd],
             rs1,cpu->gpr[rs1],imm);
     }
 
@@ -1441,7 +1453,7 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
             }
             cpu->csr[csr] = cpu->gpr[rs1];
             if(log_enable){
-            printf("[csrrw] x[rd:%d]:0x%16lx,x[rs1:%d]:0x%16lx,csr[0x%08x]:0x%16lx\n",
+            fprintf(stderr,"[csrrw] x[rd:%d]:0x%16lx,x[rs1:%d]:0x%16lx,csr[0x%08x]:0x%16lx\n",
                         rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],csr,cpu->csr[csr]);
             }
          
@@ -1455,7 +1467,7 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
                 cpu->csr[csr] |= cpu->gpr[rs1];
             }
             if(log_enable){
-            printf("[csrrs] x[rd:%d]:0x%16lx,csr[0x%08x] |= x[rs1:%d]:0x%16lx,val = 0x%16lx\n ",
+            fprintf(stderr,"[csrrs] x[rd:%d]:0x%16lx,csr[0x%08x] |= x[rs1:%d]:0x%16lx,val = 0x%16lx\n ",
                             rd,cpu->gpr[rd],csr,rs1,cpu->gpr[rs1],cpu->csr[csr]);
             }
 
@@ -1466,7 +1478,7 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
             }
             cpu->csr[csr] &= ~cpu->gpr[rs1];
             if(log_enable){
-            printf("[csrrc] x[%d]:0x%16lx,csr[0x%08x] |= x[%d]:0x%16lx,val = 0x%16lx\n ",
+            fprintf(stderr,"[csrrc] x[%d]:0x%16lx,csr[0x%08x] |= x[%d]:0x%16lx,val = 0x%16lx\n ",
                             rd,cpu->gpr[rd],csr,rs1,cpu->gpr[rs1],cpu->csr[csr]);
             }
 
@@ -1481,7 +1493,7 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
 
             write_csr(cpu,csr,imm5);
             if(log_enable){
-            printf("[csrrwi] x[%d]:0x%16lx,csr[0x%08x]:0x%16lx\n ",
+            fprintf(stderr,"[csrrwi] x[%d]:0x%16lx,csr[0x%08x]:0x%16lx\n ",
                             rd,cpu->gpr[rd],csr,cpu->csr[csr]);
             }
             break;
@@ -1496,7 +1508,7 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
             }
             write_csr(cpu,csr,old_value & imm );
             if(log_enable){
-            printf("[csrrci] x[%d]:0x%16lx,new value:0x%16lx\n",rd,cpu->gpr[rd],
+            fprintf(stderr,"[csrrci] x[%d]:0x%16lx,new value:0x%16lx\n",rd,cpu->gpr[rd],
                         cpu->csr[csr]);
             }
         }
@@ -1517,7 +1529,7 @@ void exec_iw(CPU_State* cpu,uint32_t instr){
         cpu->gpr[rd] = (int64_t)((int32_t)cpu->gpr[rs1] + imm);//sext.w
     }
     if(log_enable){
-    printf("[addiw]x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%08x\n",
+    fprintf(stderr,"[addiw]x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%08x\n",
         rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],imm);
     }
     cpu->pc += 4;
@@ -1540,7 +1552,7 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
         case 0b00001: //AMOSWAP.W
             {   
                 if(cpu->gpr[rs1] % 4 != 0){
-                    printf("addr error\n");
+                    fprintf(stderr,"addr error\n");
                     return;
                 }
                 uint32_t tmp = bus_read(&cpu->bus,addr,4);
@@ -1548,7 +1560,7 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
                 cpu->gpr[rd] = tmp;
                 cpu->pc += 4;
                 if(log_enable){
-                printf("[AMOSWAP.W] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx,tmp:0x%08x",
+                fprintf(stderr,"[AMOSWAP.W] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx,tmp:0x%08x",
                         rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],tmp);
                 }
             
@@ -1606,7 +1618,7 @@ void memory_barrier(CPU_State *cpu, uint8_t pred, uint8_t succ) {
     // 同步内存系统
     memory_synchronize(cpu->mem);
     */
-    printf("CPU: Memory barrier completed, pred=0x%x, succ=0x%x\n", pred, succ);
+    fprintf(stderr,"CPU: Memory barrier completed, pred=0x%x, succ=0x%x\n", pred, succ);
 }
 
 
@@ -1651,7 +1663,7 @@ void exec_float(CPU_State* cpu,uint32_t instr){
             int64_t float_datas = (int64_t)((int32_t)float_bits);
             cpu->gpr[rd] = float_datas;
         if(log_enable){
-        printf("[fmv.x.w] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
+        fprintf(stderr,"[fmv.x.w] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
                     rs1,cpu->fgpr[rs1]);
         }
             }
@@ -1663,7 +1675,7 @@ void exec_float(CPU_State* cpu,uint32_t instr){
             uint32_t origin_bits = cpu->gpr[rs1] & 0xFFFFFFFF;
             cpu->fgpr[rd] = origin_bits;
         if(log_enable){
-        printf("[fmv.w.x] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
+        fprintf(stderr,"[fmv.w.x] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
                     rs1,cpu->fgpr[rs1]);
         }
         }
@@ -1674,7 +1686,7 @@ void exec_float(CPU_State* cpu,uint32_t instr){
         if(rs2 == 0 && funct3 == 0){
             cpu->gpr[rd] = cpu->fgpr[rs1];
             if(log_enable){
-            printf("[fmv.x.d] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
+            fprintf(stderr,"[fmv.x.d] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
                         rs1,cpu->fgpr[rs1]);
             }
         }
@@ -1685,7 +1697,7 @@ void exec_float(CPU_State* cpu,uint32_t instr){
         if(rs2 == 0 && funct3 == 0){
             cpu->fgpr[rd] = cpu->gpr[rs1];
             if(log_enable){
-            printf("[fmv.d.x] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
+            fprintf(stderr,"[fmv.d.x] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
                         rs1,cpu->fgpr[rs1]);
             }
         }
@@ -1712,11 +1724,11 @@ void exec_wfi(CPU_State* cpu,uint32_t instr){
 
     if (pending_enabled && (mstatus & MSTATUS_MIE)) {
         // 有使能的中断待处理，不等待，继续执行
-        printf("[WFI]: Interrupts pending, continuing execution\n");
+        fprintf(stderr,"[WFI]: Interrupts pending, continuing execution\n");
         cpu->pc += 4;
     } else {
         // 没有中断待处理，进入等待状态
-        printf("[WFI]: No enabled interrupts pending\n");
+        fprintf(stderr,"[WFI]: No enabled interrupts pending\n");
         
         // 在模拟器中，我们有几种选择：
         
@@ -1726,7 +1738,7 @@ void exec_wfi(CPU_State* cpu,uint32_t instr){
             uint64_t mip_val = read_csr(cpu, CSR_MIP);
             mip_val |= MIP_MTIP;
             write_csr(cpu, CSR_MIP, mip_val);
-            printf("[WFI]: Setting timer interrupt to avoid deadlock\n");
+            fprintf(stderr,"[WFI]: Setting timer interrupt to avoid deadlock\n");
         } else {
             // 选项2：快进到下一个定时器中断
             uint64_t cycles_until_interrupt = cpu->mtimecmp - cpu->mtime;
@@ -1735,7 +1747,7 @@ void exec_wfi(CPU_State* cpu,uint32_t instr){
                 uint64_t mip_val = read_csr(cpu, CSR_MIP);
                 mip_val |= MIP_MTIP;
                 write_csr(cpu, CSR_MIP, mip_val);
-                printf("[WFI]: Fast-forwarding to next timer interrupt\n");
+                fprintf(stderr,"[WFI]: Fast-forwarding to next timer interrupt\n");
             }
         }
         
@@ -1744,7 +1756,7 @@ void exec_wfi(CPU_State* cpu,uint32_t instr){
         
         // 立即检查是否有中断需要处理
         check_pending_and_take(cpu);
-        cpu->pc = 0x800003be;
+        
     }
 }
 
@@ -1757,19 +1769,20 @@ void exec_3b(CPU_State* cpu,uint32_t instr){
 
     if(funct7 == 0 && funct3 == 0b001){ // sllw
         int32_t data = (cpu->gpr[rs1] & 0xFFFFFFFF);
-        
         uint32_t shamt = (cpu->gpr[rs2] & 0x1F);
         int32_t imm = data << shamt;
+
         cpu->gpr[rd] = (int64_t)imm;
         cpu->pc += 4;
         if(log_enable){
-        printf("[sllw] x[%d]:0x%08x,x[%d]:0x%08x,imm:0x%16lx\n",
+        fprintf(stderr,"[sllw] x[%d]:0x%08x,x[%d]:0x%08x,imm:0x%16lx\n",
                rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],imm);
         }
     }else if(funct7 == 1 && funct3 == 0b111){ //remuw
         uint32_t divided = (uint32_t)(cpu->gpr[rs1]);
         uint32_t divisor = (uint32_t)(cpu->gpr[rs2]);
         uint32_t value = 0;
+
         if(divisor == 0){
             value = divided;
         }else{
@@ -1783,7 +1796,7 @@ void exec_3b(CPU_State* cpu,uint32_t instr){
         cpu->pc += 4;
 
         if(log_enable){
-            printf("[remuw] divided(rs1:%d):0x%08lx divisor(rs2:%d):0x%08lx,val(rd:%d):0x%08lx\n",
+            fprintf(stderr,"[remuw] divided(rs1:%d):0x%08lx divisor(rs2:%d):0x%08lx,val(rd:%d):0x%08lx\n",
                 rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],rd,result);
         }
     }else if(funct7 == 1 && funct3 == 0b101){ //divuw
@@ -1804,9 +1817,19 @@ void exec_3b(CPU_State* cpu,uint32_t instr){
         cpu->pc += 4;
 
         if(log_enable){
-            printf("[divuw] divided(rs1:%d):0x%08lx divisor(rs2:%d):0x%08lx,val(rd:%d):0x%08lx\n",
+            fprintf(stderr,"[divuw] divided(rs1:%d):0x%08lx divisor(rs2:%d):0x%08lx,val(rd:%d):0x%08lx\n",
                 rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],rd,result);
         }
+    }else if(funct7 == 0 && funct3 == 0){ //addw
+        int32_t rs1_val = (int32_t)cpu->gpr[rs1];
+        int32_t rs2_val = (int32_t)cpu->gpr[rs2];
+        int32_t val = rs1_val + rs2_val;
+        int64_t result = (int64_t)val;
+
+        if(rd != 0){
+            cpu->gpr[rd] = result;
+        }
+        cpu->pc += 4;
     }
 }
 
@@ -1822,7 +1845,7 @@ void exec_srl(CPU_State* cpu,uint32_t instr){
     }
     cpu->pc += 4;
     if(log_enable){
-    printf("[srl] x[%d]:0x%16lx,shamt:0x%08x,x[%d]:0x%16lx\n",
+    fprintf(stderr,"[srl] x[%d]:0x%16lx,shamt:0x%08x,x[%d]:0x%16lx\n",
            rs1,cpu->gpr[rs1],shamt,rd,cpu->gpr[rd] );
     }
 }
@@ -1843,7 +1866,7 @@ void exec_remu(CPU_State *cpu,uint32_t instr){
 
     cpu->pc += 4;
     if(log_enable){
-    printf("[remu] x[%d]:0x%016lx,x[%d]:0x%016lx,x[%d]:0x%016lx\n",
+    fprintf(stderr,"[remu] x[%d]:0x%016lx,x[%d]:0x%016lx,x[%d]:0x%016lx\n",
             rd,cpu->gpr[rd],rs1,cpu->gpr[rs2],rd,cpu->gpr[rs2]
     );
     }
@@ -1866,7 +1889,7 @@ void exec_divu(CPU_State *cpu,uint32_t instr){
 
     cpu->pc += 4;
     if(log_enable){
-    printf("[remu] x[%d]:0x%016lx,x[%d]:0x%016lx,x[%d]:0x%016lx\n",
+    fprintf(stderr,"[remu] x[%d]:0x%016lx,x[%d]:0x%016lx,x[%d]:0x%016lx\n",
             rd,cpu->gpr[rd],rs1,cpu->gpr[rs2],rd,cpu->gpr[rs2]
     );
     }
