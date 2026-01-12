@@ -29,9 +29,12 @@
 
 
 extern uint8_t* memory;
+extern virtio_blk_device dev;
 Bus bus;
 CPU_State cpu[MAX_CORES];
 int log_enable = 0;
+
+ int j = 0;
 
 struct memory_pool pool; 
 
@@ -40,84 +43,6 @@ static uint64_t get_real_time_us() {
     gettimeofday(&tv, NULL);
     return (uint64_t)tv.tv_sec * 1000000 + tv.tv_usec;
 }
-
-void dump_sv39_walk(CPU_State* cpu, uint64_t va) {
-    uint64_t satp = cpu->csr[CSR_SATP];
-    printf("\n========== SV39 WALK: VA = 0x%016lx ==========\n", va);
-    printf("SATP = 0x%016lx (mode=%d, asid=%d, ppn=0x%lx)\n",
-        satp,
-        (int)(satp >> 60),
-        (int)((satp >> 44) & 0xFFFF),
-        (uint64_t)(satp & ((1UL<<44)-1)));
-
-    if ((satp >> 60) != 8) {
-        printf("MMU disabled (Bare mode)\n");
-        return;
-    }
-
-    uint64_t ppn = satp & ((1UL<<44)-1);
-    uint64_t table = ppn << 12;
-
-    for (int level = 2; level >= 0; level--) {
-
-        uint64_t vpn_i = (va >> (12 + level*9)) & 0x1FF;
-        uint64_t pte_addr = table + vpn_i * 8;
-
-        uint64_t pte = phys_read_u64(cpu, pte_addr);
-
-        printf("\n-- Level %d --\n", level);
-        printf("VPN[%d] = %ld\n", level, vpn_i);
-        printf("PTE addr = 0x%016lx\n", pte_addr);
-        printf("PTE      = 0x%016lx\n", pte);
-
-        if ((pte & 1) == 0) {
-            printf("❌ INVALID: PTE.V = 0\n");
-            return;
-        }
-
-        uint64_t flags = pte & 0x3FF;
-
-        printf("Flags: V=%d R=%d W=%d X=%d U=%d G=%d A=%d D=%d\n",
-            !!(flags & 1),
-            !!(flags & 2),
-            !!(flags & 4),
-            !!(flags & 8),
-            !!(flags & 16),
-            !!(flags & 32),
-            !!(flags & 64),
-            !!(flags & 128)
-        );
-
-        int leaf = (flags & (2|4|8)) != 0;
-        if (leaf) {
-            printf("🌿 Leaf PTE at level %d\n", level);
-
-            uint64_t pa;
-
-            if (level == 2) { // 1GB page
-                uint64_t ppn2 = (pte >> 28) & 0x3FFFFFF;
-                pa = (ppn2 << 30) | (va & 0x3FFFFFF);
-            } else if (level == 1) { // 2MB page
-                uint64_t ppn21 = (pte >> 19) & 0x7FFFFFFFFULL;
-                pa = (ppn21 << 21) | (va & 0x1FFFFF);
-            } else { // level 0 normal page
-                uint64_t ppn012 = (pte >> 10) & ((1UL<<44)-1);
-                pa = (ppn012 << 12) | (va & 0xFFF);
-            }
-
-            printf("PA = 0x%016lx\n", pa);
-            printf("========== END WALK ==========\n");
-            return;
-        }
-
-        /* Non-leaf → go down */
-        uint64_t next_ppn = (pte >> 10) & ((1UL<<44)-1);
-        table = next_ppn << 12;
-    }
-
-    printf("❌ ERROR: Walk finished without leaf!\n");
-}
-
 
 int main() {
     setbuf(stdout, NULL);
@@ -149,9 +74,6 @@ int main() {
 
     kalloc_sim(&ram);
 
-    
-    
-    
     uint64_t entry_addr;
     if(load_elf64_SBI("kernel",&entry_addr) < 0){
         printf("load openSBI error\n");
@@ -160,6 +82,7 @@ int main() {
     }
 
     virtio_blk_init("fs.img");
+    printf("=====init driveraddr:0x%16lx\n",dev.driver_addr);
 
     bus_register_mmio(&bus, 
                     MEMORY_BASE, MEMORY_SIZE, 
@@ -197,8 +120,6 @@ int main() {
         printf("pc[%d]:0x%08lx\n",i,cpu[i].pc);
         cpu_init(&cpu[i],i);
         tlb_flush(&cpu);
-        
-
         // 运行模拟器
         printf("Starting RISC-V emulator...cpu privilege: %d\n",cpu[i].privilege);
         printf("Only cpu 0\n");
@@ -206,64 +127,36 @@ int main() {
         //load_elf32_bare("../../../mini-rtos/rtos",memory,MEMORY_BASE,MEMORY_BASE,&cpu);
         //load_elf32_bare("../../mini-rtos/rtos",memory,MEMORY_SIZE,MEMORY_BASE,&cpu);
         cpu[i].pc = entry_addr;
-        int j = 0;
+       
+        static uint64_t old = 0;
         if(cpu[i].halted != true){
-        
-                        //
-                        //413339546
-                            
-            for( ;j <= 413363676; j++) {
+                    //
+                    //415173710  sleep
+                    //422282255   virtio 0x50
+                    //
+            for( ;j <= 415005914; j++) {
                 cpu_step(&cpu[i],memory);
 
+                cpu[i].cycle_count++;
+                if(log_enable){
+                   // printf("j:%ld\n",j);
+                }
                 cpu->csr[CSR_TIME] += 10;
                 int n = 0;
-                
-                if(cpu[0].csr[CSR_TIME] >= 4133628300){
-                   // log_enable = 1;
+
+                if(cpu[i].pc == 0x800023ee){
+                   // printf("j:%ld\n",j);
+                  //  break;
                 }
 
-          
-                if(j > 413362839){
-                    uint64_t addr = 0x8000fcd8;
-                    uint64_t val = bus_read(&bus,addr,8);
-                    if(val != 0x80001870){
-                     //   printf("j:%ld\n");
-                      //  cpu[0].halted = true;
-                    }
+                if(cpu[0].csr[CSR_TIME] >= 4150059100){
+                   log_enable = 1;
                 }
 
-                if(cpu[0].pc == 0x80001acc){
-                    log_enable = 1;
-                }
+                virtio_disk_update(&cpu[i].cycle_count);
 
-                if(cpu[0].pc == 0x80001ad2){
-                    //printf("x11:0x%08lx\n",cpu[0].gpr[11]);
-                    //printf("j:%ld , time:%ld\n",j,cpu[0].csr[CSR_TIME]);
-                    //cpu[0].halted = true;
-                }
+                check_and_handle_interrupts(&cpu[i]);
 
-                if ((cpu[i].mip & cpu[i].mie) && (cpu[i].mstatus & MSTATUS_MIE)){
-                    //trap handle
-                    uint64_t cause = 0;
-                    bool is_interrupt = true;
-
-                    // 检查具体的中断源（按优先级）
-                    if (cpu[i].mip & MIP_MSIP && cpu[i].mie & MIE_MSIE) {
-                        cause = IRQ_M_SOFT;
-                        cpu[i].mip &= ~MIP_MSIP;  // 软件中断可以立即清除
-                    } else if (cpu[i].mip & MIP_MTIP && cpu[i].mie & MIE_MTIE) {
-                        cause = IRQ_M_TIMER;
-                        cpu[i].mip &= ~MIP_MTIP;  // 定时器中断可以立即清除
-                    } else if (cpu[i].mip & MIP_MEIP && cpu[i].mie & MIE_MEIE) {
-                        cause = IRQ_M_EXT;
-                        // 重要：不要在这里清除 MEIP！
-                        // MEIP 由 PLIC 在中断处理完成后清除
-                    } else {
-                        continue;
-                    }
-                    take_trap(&cpu[i], cause, is_interrupt);
-                  
-                }
             }
         }else{
             cpu[i].running = false;

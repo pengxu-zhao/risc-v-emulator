@@ -63,17 +63,21 @@ int plic_is_enabled(int irq, int cpu_id) {
     if (irq < 1 || irq >= MAX_IRQS) return 0;
     if (cpu_id < 0 || cpu_id >= MAX_CORES) return 0;
     
+    
     // 计算在使能寄存器数组中的位置
     int word_index = irq / 32;
     int bit_offset = irq % 32;
     
     // 检查使能位
-    return (plic.enable[cpu_id][word_index] >> bit_offset) & 1;
+    uint8_t ret = (plic.enable[cpu_id][word_index] >> bit_offset) & 1;
+   
+    return ret;
 }
 
 void plic_set_irq(int irq, int level) {
     if (irq < 1 || irq >= MAX_IRQS) return;
 
+    uint32_t old_pending = plic.pending[irq >> 5];
     int pending_word = irq >> 5;
     int pending_bit = irq & 0x1F;
     
@@ -156,29 +160,29 @@ void plic_update(int cpu_id) {
     for (int irq = 1; irq < MAX_IRQS; irq++) {
         int word_index = irq >> 5; //  irq / 32
         int bit_offset = irq & 0x1F; // irq % 32
-
+        
         if(!plic_is_enabled(irq,cpu_id)) continue;
         if( !(plic.pending[word_index] & (1 << bit_offset))) continue;
 
         //检查是否已被认领
-        if(plic.claimed && (plic.claimed[cpu_id][irq >> 5] & (1 << (irq & 0x1F)))){
-            continue;
-        }
+      //  if(plic.claimed && (plic.claimed[cpu_id][irq >> 5] & (1 << (irq & 0x1F)))){
+       //     continue;
+       // }
 
         if(plic.priority[irq] > max_priority){
             max_priority = plic.priority[irq];
             max_irq = irq;
         }
-
-        if(max_irq > 0){
-            cpu[cpu_id].mip |= MIP_MEIP;
-            plic.current_irq[cpu_id] = max_irq;
-        }else{
-            cpu[cpu_id].mip &= ~MIP_MEIP;
-            plic.current_irq[cpu_id] = 0;
-
-        }
     }
+    
+    if(max_irq > 0){
+        cpu[cpu_id].csr[CSR_MIP] |= MIP_MEIP;
+        plic.current_irq[cpu_id] = max_irq;
+    }else{
+        cpu[cpu_id].csr[CSR_MIP] &= ~MIP_MEIP;
+        plic.current_irq[cpu_id] = 0;
+    }
+    plic.irq_pending[cpu_id] = (max_irq > 0);
 }
 
 uint64_t plic_read(void* opaque,uint64_t offset, int size) {

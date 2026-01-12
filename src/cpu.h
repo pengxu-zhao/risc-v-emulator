@@ -15,8 +15,25 @@
 #define MAX_CORES 4
 
 // 重要的CSR地址定义
+#define SSTATUS_SIE (1 << 1)    // bit 1: Supervisor Interrupt Enable
+#define SSTATUS_SPIE (1 << 5)   // bit 5: Previous SIE
+#define SSTATUS_SPP (1 << 8)    // bit 8: Previous Privilege
 
-#define CSR_SIE      0x104 //supervisor 模式下管理中断使能 与 SIP 寄存器共享同一个地址
+#define SIE_SSIE (1ULL << 1)  // bit 1: Software interrupt enable
+#define SIE_STIE (1ULL << 5)  // bit 5: Timer interrupt enable
+#define SIE_SEIE (1ULL << 9)  // bit 9: External interrupt enable
+
+#define SIP_SSIP (1 << 1)   // bit 1: Software interrupt pending/enable
+#define SIP_STIP (1 << 5)   // bit 5: Timer interrupt pending/enable  
+#define SIP_SEIP (1 << 9)   // bit 9: External interrupt pending/enable
+
+#define CSR_SSTATUS  0x100
+#define CSR_SIE      0x104 //supervisor 
+#define CSR_STVEC    0x105
+#define CSR_SEPC     0x141
+#define CSR_SCAUSE   0x142
+#define CSR_STVAL    0X143
+#define CSR_SIP      0x144
 #define CSR_STIMECMP 0x14D //S mode 定时器比较寄存器，用于设置监管者模式的定时器中断。
 #define CSR_SATP     0x180
 #define CSR_MSTATUS  0x300  // 机器状态寄存器
@@ -92,7 +109,19 @@ mtval：trap 附加信息
 #define IRQ_M_TIMER 7
 #define IRQ_M_EXT   11
 
+#define IRQ_S_SOFT  3
+#define IRQ_S_TIMER 7
+#define IRQ_S_EXT 11
+
 #define SATP_MODE (1 << 31)
+
+#define MIDELEG_SSI    (1L << 1)   // 委托 Software Interrupt 给 S 模式
+#define MIDELEG_MSI    (0L << 3)   // M 模式的 Software Interrupt（实际上不委托）
+#define MIDELEG_STI    (1L << 5)   // 委托 Timer Interrupt 给 S 模式  
+#define MIDELEG_MTI    (0L << 7)   // M 模式的 Timer Interrupt（实际上不委托）
+#define MIDELEG_SEI    (1L << 9)   // 委托 External Interrupt 给 S 模式
+#define MIDELEG_MEI    (0L << 11)  // M 模式的 External Interrupt（实际上不委托）
+
 
 //TLB 
 #define TLB_SIZE 64
@@ -213,6 +242,6 @@ void cpu_dump_registers(CPU_State* cpu);
 
 static inline uint64_t read_csr(CPU_State *cpu, unsigned id){ return cpu->csr[id & 0xfff]; }
 static inline void write_csr(CPU_State *cpu, unsigned id, uint64_t v){ cpu->csr[id & 0xfff] = v; }
-
+uint64_t get_cpu_cycle(CPU_State *cpu);
 
 #endif

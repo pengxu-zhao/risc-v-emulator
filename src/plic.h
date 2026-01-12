@@ -35,8 +35,19 @@
 #define I2C_IRQ          62    // I2C 控制器
 
 
-#define VIRTIO_IRQ       70    // VirtIO 设备
+#define VIRTIO_IRQ       1    // VirtIO 设备
 
+#define PLIC_PRIORITY     0x000000  // 优先级寄存器（每个 IRQ 4 字节）
+#define PLIC_PENDING      0x001000  // Pending 位（每个 hart 一组）
+#define PLIC_MENABLE      0x002000  // M 模式使能寄存器
+#define PLIC_SENABLE      0x002080  // S 模式使能寄存器（注意：这个偏移可能不同！）
+#define PLIC_MTHRESHOLD   0x200000  // M 模式阈值
+#define PLIC_STHRESHOLD   0x201000  // S 模式阈值
+#define PLIC_MCLAIM       0x200004  // M 模式 claim
+#define PLIC_SCLAIM       0x201004  // S 模式 claim
+
+// 每个 hart 的偏移量（对于多核系统）
+#define PLIC_HART_OFFSET  0x2000    // 每个 hart 的寄存器空间
 typedef struct {
     // 优先级寄存器 (每个中断源1个，4字节对齐)
     uint32_t priority[1024];
@@ -47,6 +58,9 @@ typedef struct {
     // 每个hart的阈值和索赔/完成寄存器
     uint32_t threshold[MAX_CORES];
     uint32_t claim_complete;
+
+    //每个 CPU 是否有中断请求
+    bool irq_pending[MAX_CORES];
     
     // 内部状态
     uint32_t pending[32];           // 待处理中断位图
