@@ -2,7 +2,7 @@
 #define BUS_H
 
 #include <inttypes.h>
-
+#include "common.h"
 typedef struct {
     uint64_t base;     // 起始物理地址
     uint64_t size;     // 区间大小
@@ -11,13 +11,10 @@ typedef struct {
     void (*write)(void *opaque, uint64_t offset, uint64_t value, unsigned size);
 } MMIORegion;
 
-#define MAX_MMIO_REGIONS 8
-
 typedef struct {
     MMIORegion regions[MAX_MMIO_REGIONS];
     int region_count;
 } Bus;
-
 
 void bus_register_mmio(Bus *bus, uint64_t base, uint64_t size,
                        uint64_t (*read)(void*, uint64_t, unsigned),

@@ -4,20 +4,22 @@
 #include <string.h>
 #include <stdlib.h>
 #include "emulator_api.h"
+#include "cpu.h"
 
 uint8_t* memory = NULL;
+extern int log_enable;
 
 void init_memory(){
 
     // 分配内存
-    memory = (uint8_t*)malloc(MEMORY_SIZE);
+     memory = (uint8_t*)malloc(MEMORY_SIZE);
 
-
+   // memory = (uint8_t*)aligned_alloc(4096, MEMORY_SIZE);
     if (!memory) {
         printf("Failed to allocate %ld GB memory\n", MEMORY_SIZE / (1024 * 1024 * 1024));
         return ;
     }
-    memory = (uint8_t*)aligned_alloc(MEMORY_BASE, MEMORY_SIZE);
+    
     if (!memory) {
         printf("Failed to allocate aligned memory\n");
         return;
@@ -26,25 +28,42 @@ void init_memory(){
     // 初始化内存为0
     printf("Zeroing memory...\n");
     memset(memory, 0, MEMORY_SIZE);
-
+    printf("[0x100000]:0x%08lx\n",memory[0x100000]);
 }
-
+extern CPU_State cpu[MAX_CORES];
+extern int j;
 uint64_t memory_read(uint8_t* memory, uint64_t address, size_t size) {
     if (memory == NULL) {
         printf("Read ERROR: memory pointer is NULL!\n");
         return 0;
     }
-    
-    uint64_t phys_addr = address - MEMORY_BASE; //physical_address(address);
-   
-    if (phys_addr + size > MEMORY_SIZE) {
-        printf("fetch Read ERROR: Memory read out of bounds: address=0x%08x, phys=0x%08x, size=%zu\n", 
-               address, phys_addr, size);
+        
+    uint64_t offset = 0;
+    if(address >= MEMORY_BASE){
+        offset = address - MEMORY_BASE; //physical_address(address);
+    }else if(address >= 0x10001000ULL){
+        offset = address - 0x10001000ULL;    
+    }else if(address >= CLINT_BASE_ADDR){
+        offset = address - CLINT_BASE_ADDR;
+    }else if(address >= PLIC_BASE){
+        offset = address - PLIC_BASE;
+    }
+
+
+    if (offset + size > MEMORY_SIZE) {
+        printf("fetch Read ERROR: Memory read out of bounds: address=0x%08x, offset=0x%08x, size=%zu\n", 
+               address, offset, size);
+        printf("j:%ld\n",j);
+        cpu[0].halted = true;
         return 0;
     }
     
     uint64_t value = 0;
-    memcpy(&value, memory + phys_addr, size);
+    //memcpy(&value, memory + phys_addr, size);
+     for (int i = 0; i < size; i++) {
+        value |=  (memory[offset+i] & 0xFF ) << (i * 8);  // 小端序
+    }
+
 
     return value;
 }
@@ -55,10 +74,19 @@ void memory_write(uint8_t* memory, uint64_t address, uint64_t value, size_t size
         return;
     }
     
-    uint64_t phys_addr = physical_address(address);
+    uint64_t phys_addr = 0;
+    if(address >= MEMORY_BASE){
+        phys_addr = address - MEMORY_BASE; //physical_address(address);
+    }else if(address >= 0x10001000ULL){
+        phys_addr = address - 0x10001000ULL;    
+    }
+
+    uint64_t vl = phys_addr + size;
+    printf("vl:0x%llx\n",vl);
     if (phys_addr + size > MEMORY_SIZE) {
-        printf("ERROR: Memory write out of bounds: virt=0x%08x, phys=0x%08x, size=%zu\n", 
+        printf("ERROR: Memory write out of bounds: address=0x%llx, phys=0x%08x, size=%zu\n", 
                address, phys_addr, size);
+
         return;
     }
     memcpy(memory + phys_addr, &value, size);
@@ -135,34 +163,4 @@ void ram_write(void *opaque, uint64_t offset, uint64_t value, unsigned size) {
     COMPILER_BARRIER();
 }
 
-
-#define PGSIZE 4096
-
-uint64_t next_free_page = 0;
-
-void* kalloc_sim(RAMDevice* ram) {
-    if(next_free_page + PGSIZE > ram->size) return NULL;
-    void* page = &ram->data[next_free_page];
-    memset(page, 0, PGSIZE); // 初始化
-    next_free_page += PGSIZE;
-    return page;
-}
-
-void memory_pool_init(struct memory_pool* pool) {
-    uint8_t* start = pool->memory;
-    uint8_t* end = pool->memory + MEMORY_POOL_SIZE;
-    struct memory_block* block = NULL;
-    
-    // 初始化空闲链表
-    while (start < end) {
-        block = (struct memory_block*) start;
-        block->next = (struct memory_block*) (start + BLOCK_SIZE);
-        start += BLOCK_SIZE;
-    }
-
-    // 最后一个块指向NULL
-    block->next = NULL;
-
-    pool->freelist = (struct memory_block*) pool->memory;
-}
 

@@ -1,4 +1,7 @@
 #include "mmu.h"
+extern int j ;
+extern int log_enable;
+
 
 // fault codes returned by translate
 
@@ -9,7 +12,8 @@ void tlb_insert(CPU_State *cpu, uint64_t va, uint64_t pa, uint8_t* flags,uint16_
 // -------------------- 物理内存访问（直接使用物理地址，不走 mmu） --------------------
 static inline int phys_ok(CPU_State *cpu, uint64_t pa, uint64_t len) {
     // bounds check (you can hook platform-specific PMA checks here)
-    if ((uint64_t)pa + len > cpu->mem_size) return 0;
+
+    if ((uint64_t)pa + len > MEMORY_BASE + MEMORY_SIZE) return 0;
     return 1;
 }
 
@@ -83,12 +87,8 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
 
     */
    static int depth = 0;
-    
- 
-
     cpu->satp = cpu->csr[CSR_SATP];
-
-   // printf("[satp]:0x%016lx\n",cpu->satp);
+   
 
     if( (cpu->satp >> 60 ) != 8){ //0:bare 8:sv39
         *out_pa = va;
@@ -110,48 +110,55 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
             case 0: vpn_i = (va >> 12) & 0x1FF; break;
             default: break;
         }
-
-      //  printf("[va]:0x%16lx\n",va);
+       
 
         uint64_t pte_addr = vpn_i *8 + table_addr;
         uint64_t pte = 0;
 
         pte = phys_read_u64(cpu,pte_addr);
-        
-      //  printf("[pte] addr:0x%16lx,pte:0x%16lx\n",pte_addr,pte);
+
+         if(va == 0x80000f26)
+            printf("[va]:0x%16lx,[pte]:0x%16lx\n",va,pte);
 
         if((pte & PTE_V) == 0) {
+            if(log_enable) printf("111pte:0x%16lx\n",pte);
             return MMU_FAULT_PAGE;  
         }
 
         int is_leaf = ((pte & PTE_R) != 0) || 
                         ((pte & PTE_X) != 0) || ((pte & PTE_W) != 0);
 
-      //  printf("[leaf]:%d",is_leaf);
+      if(log_enable)  printf("[leaf]:%d\n",is_leaf);
         if(!is_leaf){
             if (--i < 0) return MMU_FAULT_PAGE;
             uint64_t next_ppn = (pte >> 10) & ((1 << 44) - 1);
             table_addr = next_ppn << 12;
             continue;
         }
-     //  printf("[privilege]:%d",cpu->privilege);
+        if(log_enable)  printf("[privilege]:%d\n",cpu->privilege);
         if (cpu->privilege == 0) { // user mode
             if ((pte & PTE_U) == 0) {
+                if(log_enable) printf("111pte:0x%16lx\n",pte);
                 return MMU_FAULT_PAGE;}
         } else if (cpu->privilege == 1) { // supervisor
+            
             if ((pte & PTE_U) != 0) {
+                if(log_enable) printf("111pte:0x%16lx\n",pte);
                 if (!cpu->sum) return MMU_FAULT_PAGE;
                 if (acc_type == ACC_FETCH) return MMU_FAULT_PAGE;
             }
         }
-
+    
         if (acc_type == ACC_LOAD && !(pte & PTE_R)) {
             if (!(cpu->mxr && (pte & PTE_X))) {
+                if(log_enable) printf("111pte:0x%16lx\n",pte);
                 return MMU_FAULT_PAGE;}
         }
         if (acc_type == ACC_FETCH && !(pte & PTE_X)) {
+            if(log_enable) printf("111pte:0x%16lx\n",pte);
             return MMU_FAULT_PAGE;}
         if (acc_type == ACC_STORE && !(pte & PTE_W)) {
+            if(log_enable) printf("111pte:0x%16lx\n",pte);
             return MMU_FAULT_PAGE;}
 
         if(i > 0){
@@ -159,11 +166,13 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
             if (i == 2) {
             // L2级别：检查1GB大页对齐（PPN[1:0]必须为0）
                 if ((ppn & ((1UL << 18) - 1)) != 0) {  // 检查低18位
+                    
                     return MMU_FAULT_PAGE;  // 1 GiB大页未对齐
                 }
             } else if (i == 1) {
                 // L1级别：检查2 MiB大页对齐（PPN[0]必须为0）
                 if ((ppn & ((1UL << 9) - 1)) != 0) {   // 检查低9位
+                    
                     return MMU_FAULT_PAGE;  // 2 MiB大页未对齐
                 }
             }
@@ -223,7 +232,10 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
             default:            break;
         }
       //  printf("[pa] 0x%16lx\n",pa);
-        if (!phys_ok(cpu, pa, 1)) return MMU_FAULT_ACCESS;
+        if (!phys_ok(cpu, pa, 1)) {
+            if(log_enable) printf("111pa:0x%16lx\n",pa);   
+            return MMU_FAULT_ACCESS;
+        }
         *out_pa = pa;
         uint8_t pte_flag = pte & ((1 << 7) - 1);
         *flags = pte_flag;
@@ -736,20 +748,26 @@ uint64_t get_pa(CPU_State *cpu,uint64_t vaddr,int acc_type){
     uint64_t satp = cpu->csr[CSR_SATP];
     uint8_t flags = 0;
 
+    if(log_enable)
+    {
+        printf("vaddr:0x%16lx,satp:0x%16lx\n",vaddr,satp);
+    }
     if (((satp >> 60) & 0xF) != 0){
         int result = tlb_lookup(cpu,vaddr,acc_type,&pa,cpu->asid);
+        if(log_enable) printf("tlb result:%d\n",result);
         if(result != MMU_OK){
             result = sv39_translate(cpu,vaddr,acc_type,&pa,&flags);
+            if(log_enable) printf("sv39 result:%d\n",result);
             if(result == MMU_FAULT_ACCESS){
                 //handle_page_fault(cpu,va,ACC_FETCH);
                 return 0;
             }
         }
+           
         return pa;
     }
     
     pa = vaddr;
-    
 
     return pa;
 }

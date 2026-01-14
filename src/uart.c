@@ -6,6 +6,7 @@
 
 #include "uart.h"
 #include "cpu.h"
+#include <ctype.h>
 
 static void uart_update_lsr(UARTDevice *u) {
     u->lsr = 0;
@@ -21,87 +22,67 @@ static void uart_set_overrun(UARTDevice *u) {
 
 void uart_update_irq_old(UARTDevice* uart) {
 
-    printf("[UART] uart_update_irq: ENTER\n");
-    fflush(stdout);
-    
     pthread_mutex_lock(&uart->lock);
-    printf("[UART] uart_update_irq: GOT lock\n");
-    fflush(stdout);
 
     int raise_irq = 0;
     int irq_type = 0;
    
     // 全局中断使能检查 (MCR OUT2)
     if (!(uart->mcr & 0x08)) {
-        printf("[UART] uart_update_irq: Global interrupts disabled\n");
-        fflush(stdout);
         // 全局中断禁用，清除所有中断
         if (uart->irq_cb) {
             uart->irq_cb(uart->cpu_opaque, 0, uart->irq_num);
         }
         uart->iir = 0x01; // 无中断挂起
         pthread_mutex_unlock(&uart->lock);
-        printf("[UART] uart_update_irq: EXIT (interrupts disabled)\n");
-        fflush(stdout);
+
         return;
     }else{
-        printf("[UART] uart_update_irq: Global interrupts enabled\n");
-        fflush(stdout);
+
     }
     // 检查接收数据中断 (IER bit0)
     if ((uart->ier & 0x01) && (uart->rx_count > 0)) {
         raise_irq = 1;
         irq_type = 0x04; // 接收数据可用
         uart->iir = irq_type;
-        printf("[UART] uart_update_irq: RX data available interrupt\n");
-        fflush(stdout);
+ 
     }
     // 检查发送保持寄存器空中断 (IER bit1)
     else if ((uart->ier & 0x02) && (uart->lsr & 0x20)) {
         raise_irq = 1;
         irq_type = 0x02; // 发送保持寄存器空
         uart->iir = irq_type;
-        printf("[UART] uart_update_irq: TX holding register empty interrupt\n");
-        fflush(stdout);
+
     }
     // 检查线路状态中断 (IER bit2)
     else if ((uart->ier & 0x04) && (uart->lsr & 0x1E)) { // 任何错误条件
         raise_irq = 1;
         irq_type = 0x06; // 接收线路状态
         uart->iir = irq_type;
-        printf("[UART] uart_update_irq: Line status interrupt\n");
-        fflush(stdout);
+
     }
     // 检查 Modem 状态中断 (IER bit3)
     else if ((uart->ier & 0x08) && (uart->msr & 0x0F)) { // 任何 Modem 状态变化
         raise_irq = 1;
         irq_type = 0x00; // Modem 状态变化
         uart->iir = irq_type;
-        printf("[UART] uart_update_irq: Modem status interrupt\n");
-        fflush(stdout);
+
     }
     else {
         uart->iir = 0x01; // 无中断挂起
-        printf("[UART] uart_update_irq: No interrupt pending\n");
-        fflush(stdout);
+
     }
-    printf("[UART] uart_update_irq: raise_irq=%d, irq_type=0x%02x\n", raise_irq, irq_type);
-    fflush(stdout);
+
     // 调用中断回调
-    printf("[uart]raise_irq:%d\n",raise_irq);
+ 
     if (uart->irq_cb) {
-        printf("[UART] uart_update_irq: Calling IRQ callback, level=%d\n", raise_irq);
-        fflush(stdout);
         uart->irq_cb(uart->cpu_opaque, raise_irq, uart->irq_num);
-        printf("[UART] uart_update_irq: IRQ callback returned\n");
-        fflush(stdout);
     }else{
         printf("[UART] uart_update_irq: No IRQ callback registered\n");
         fflush(stdout);
     }
     pthread_mutex_unlock(&uart->lock);
-    printf("[UART] uart_update_irq: EXIT\n");
-    fflush(stdout);
+
 }
 
 
@@ -112,68 +93,37 @@ static inline bool rx_buf_is_empty(UARTDevice *u) { return u->rx_count == 0; }
 static inline bool rx_buf_is_full(UARTDevice *u)  { return u->rx_count >= UART_RX_BUF_SIZE; }
 
 static bool tx_buf_push(UARTDevice *u, uint8_t b) {
-    printf("[UART] tx_buf_push: ENTER, b=0x%02x ('%c'), tx_count=%d\n", 
-           b, (b >= 32 && b < 127) ? b : '.', u->tx_count);
-    fflush(stdout);
-    
+
     // 检查锁状态（我们已经在锁内）
-    printf("[UART] tx_buf_push: We are already in lock\n");
-    fflush(stdout);
+
     bool ret = !tx_buf_is_full(u);
 
-    printf("[UART] tx_buf_push: was_empty=%d\n", ret);
-    fflush(stdout);
-
     // 检查缓冲区状态
-    printf("[UART] tx_buf_push: Checking if buffer is full...\n");
-    fflush(stdout);
+
     if (!ret) {
-        printf("[UART] tx_buf_push: Buffer is FULL! tx_count=%d, head=%d, tail=%d\n", 
-               u->tx_count, u->tx_head, u->tx_tail);
-        fflush(stdout);
+
         // policy: drop oldest (advance tail)
         u->tx_tail = (u->tx_tail + 1) % UART_TX_BUF_SIZE;
         u->tx_count--;
-        printf("[UART] tx_buf_push: After dropping, tx_count=%d, head=%d, tail=%d\n", 
-               u->tx_count, u->tx_head, u->tx_tail);
-        fflush(stdout);
+
     }
-       printf("[UART] tx_buf_push: Buffer has space, tx_count=%d\n", u->tx_count);
-        fflush(stdout);
     if(u->tx_count >= UART_TX_BUF_SIZE){
-        printf("UART TX buffer overflow\n");
         pthread_mutex_unlock(&u->lock);
         return false;
     }
-     printf("[UART] tx_buf_push: Before writing to buffer, head=%d\n", u->tx_head);
-    fflush(stdout);
-    
 
     u->tx_buf[u->tx_head] = b;
-       printf("[UART] tx_buf_push: Wrote byte to buffer[%d]\n", u->tx_head);
-    fflush(stdout);
+
     u->tx_head = (u->tx_head + 1) % UART_TX_BUF_SIZE;
     u->tx_count++;
-    printf("[UART] tx_buf_push: After update, head=%d, tail=%d, count=%d\n", 
-           u->tx_head, u->tx_tail, u->tx_count);
-    fflush(stdout);
-    printf("[UART] tx_buf_push: b='%c', tx_count=%d, ret=%d\n", b, u->tx_count, ret);
-    printf("[UART] tx_buf_push: Calling uart_update_lsr...\n");
-    fflush(stdout);
     uart_update_lsr(u);
-    printf("[UART] tx_buf_push: After uart_update_lsr\n");
-    fflush(stdout);
+
     //if(tx_buf_is_empty(u))
     { 
-        printf("[UART] tx_buf_push: consignal\n");
-        fflush(stdout);
+
         pthread_cond_signal(&u->tx_cond); 
     }
-    printf("[UART] tx_buf_push: after consignal\n");
-   
 
-    printf("[UART] tx_buf_push: EXIT, returning %d\n", ret);
-    fflush(stdout);
     return ret;
 }
 
@@ -247,16 +197,13 @@ static void uart_maybe_clear_irq(UARTDevice *u) {
 /* ---------- TX thread: consumes tx_buf and writes to stdout ---------- */
 static void *uart_tx_thread(void *arg) {
     UARTDevice *u = (UARTDevice *)arg;
-    printf("[uart] tx running:%d\n",u->running);
     while (1) {
-        printf("[TX thread] active, tx_count=%d\n", u->tx_count);
+
         pthread_mutex_lock(&u->lock);
         while (u->running && tx_buf_is_empty(u)) {
             // wait until there's data or we're shutting down
-            printf("urunning!\n");
             pthread_cond_wait(&u->tx_cond, &u->lock);
         }
-        printf("outrunning\n");
         if (!u->running && tx_buf_is_empty(u)) {
             pthread_mutex_unlock(&u->lock);
             break;
@@ -265,26 +212,29 @@ static void *uart_tx_thread(void *arg) {
         uint8_t b;
         bool ok = tx_buf_pop(u, &b);
 
-        if(ok){
+
+       /* if(ok){
             ssize_t written = write(u->serial_fd, &b, 1);
             if(written != 1) perror("Uart TX write failed\n");
             usleep(87);// 模拟波特率延迟 (115200 baud = ~87μs per byte)  
-        }
+        } */
 
-        printf("[uart]ok:%d b:%d\n",ok,b);
+      //  printf("[uart]ok:%d b:%d\n",ok,b);
         // update IRQ state before unlocking
         //uart_maybe_raise_irq(u);
         
         pthread_mutex_unlock(&u->lock);
-        if (ok){
-            write(STDOUT_FILENO, &b, 1);
-            fsync(STDOUT_FILENO);
-            uart_update_irq(u);
-        }
+
+        if(!ok) continue;
+        write(STDOUT_FILENO, &b, 1);
+        if(b == '\n') fflush(stdout);
+        usleep(87);// 模拟波特率延迟 (115200 baud = ~87μs per byte)  
+        uart_update_irq(u);
     }
 
     if (u->serial_fd >= 0) {
         close(u->serial_fd);
+        u->serial_fd = -1;
     }
     return NULL;
 }
@@ -293,15 +243,20 @@ static void *uart_tx_thread(void *arg) {
 static void *uart_rx_thread(void *arg) {
     UARTDevice *u = (UARTDevice *)arg;
 
+    int input_fd = STDIN_FILENO;
+
+       // 设置stdin为非阻塞
+    int flags = fcntl(input_fd, F_GETFL, 0);
+    fcntl(input_fd, F_SETFL, flags | O_NONBLOCK);
+
     // set stdin non-blocking? We'll use blocking read in a loop to keep things simple.
     while (u->running) {
         uint8_t buf[128];
-        ssize_t r = read(u->serial_fd, buf, sizeof(buf));
+        ssize_t r = read(input_fd, buf, sizeof(buf));
         
         if (r <= 0) {
             if (r == 0) {
                 // EOF -> stop reading
-                printf("[UART] EOF on stdin, stopping RX thread\n"); 
                 break;
             }
             if (errno == EINTR) continue;
@@ -314,9 +269,13 @@ static void *uart_rx_thread(void *arg) {
         }
         for (ssize_t i = 0; i < r; ++i) 
         {
+            // 特殊处理：如果按Ctrl+D (EOF)
+            if (buf[i] == 0x04) {
+                printf("\n[UART] EOF (Ctrl+D) received\n");
+                continue;
+            }
             rx_buf_push(u, buf[i]);
-            printf("[UART] Received: 0x%02x ('%c')\n", buf[i], 
-                       (buf[i] >= 32 && buf[i] < 127) ? buf[i] : '.');
+         
         }
       
         //uart_maybe_raise_irq(u); // may set RX irq
@@ -423,23 +382,16 @@ uint32_t uart_mmio_read(UARTDevice *u, uint64_t offset, unsigned size) {
 
 void uart_update_baud(UARTDevice *uart) {
     uint16_t divisor = (uart->dlm << 8) | uart->dll;
-    printf("dlm:%d , dll: %d\n",uart->dlm,uart->dll);
     if (divisor != 0)
         uart->baud_rate = 1843200 / (16 * divisor);
     else
         uart->baud_rate = 1843200 / 16;
-    printf("baud_rate:%ld\n",uart->baud_rate);
 }
 
 void uart_mmio_write(UARTDevice *u, uint64_t offset, uint32_t val, unsigned size) {
-    printf("[UART] mmio_write: TRYING to acquire lock, offset=0x%lx\n", offset);
-    fflush(stdout);
+
     bool need_irq_update = false;
     pthread_mutex_lock(&u->lock);
-    
-    printf("[UART] mmio_write: GOT lock, offset=0x%lx val=0x%x\n", offset, val);
-    fflush(stdout);
-    
     
     // normalize val to 32-bit
     uint32_t v = val;
@@ -447,38 +399,34 @@ void uart_mmio_write(UARTDevice *u, uint64_t offset, uint32_t val, unsigned size
 
     // 对 tx_buf_push 或 tx_buf_is_empty 显式加锁
     // TX 线程或其他线程并发访问 u->tx_buf
-    printf("[UART] mmio_write: Before switch, dlab=%d\n", dlab);
-    fflush(stdout);
-    printf("[UART] write offset=0x%lx val=0x%x ('%c')\n", offset, v, (char)v);
+
     switch (offset) {
         case UART_REG_DATA: {
-            printf("[UART] mmio_write: Case 0 - DATA register\n");
-            fflush(stdout);
             if(dlab){
-                printf("[UART] mmio_write: Writing DLL = 0x%x\n", v & 0xFF);
-                fflush(stdout);
                 u->dll = val;
                 uart_update_baud(u);
             }else{
-                printf("[UART] mmio_write: Writing to TX buffer, val=0x%x ('%c')\n", 
-                       v & 0xFF, (v & 0xFF) >= 32 ? (v & 0xFF) : '.');
-                fflush(stdout);
-                
                 uint8_t b = (uint8_t)(v & 0xFF);
-                bool tx_was_empty = tx_buf_is_empty(u);
-                printf("[UART] mmio_write: Before tx_buf_push, tx_count=%d\n", u->tx_count);
-                fflush(stdout);
-                
-                if(!tx_buf_push(u, b)){
-                    printf("UART TX buffer full, dropped oldest byte\n");
-                    fflush(stdout);
+                char c = val & 0xFF;
+            
+                //fprintf(stderr, "[UART] THR: 0x%02x ", c);
+                /*if (c == '\n') fprintf(stderr, "\\n");
+                else if (c == '\r') fprintf(stderr, "\\r");
+                else if (isprint(c)) fprintf(stderr, "'%c'", c);
+                else fprintf(stderr, ".");
+                fprintf(stderr, "\n");
+                */
+                // 将字符推送到TX缓冲区（重要！）
+                bool success = tx_buf_push(u, b);
+                if (!success) {
+                    // 缓冲区满，可以设置溢出标志
+                    u->lsr |= LSR_OE;
                 }
-                printf("[UART] mmio_write: After tx_buf_push, tx_count=%d\n", u->tx_count);
-                fflush(stdout);
-                
+
+
+                bool tx_was_empty = tx_buf_is_empty(u);
+   
                 if(tx_was_empty){
-                    printf("[UART] mmio_write: Signaling TX thread\n");
-                    fflush(stdout);
                     pthread_cond_signal(&u->tx_cond);
                 }
                 u->thr = val & 0xFF;
@@ -498,7 +446,6 @@ void uart_mmio_write(UARTDevice *u, uint64_t offset, uint32_t val, unsigned size
         }
         case 1:
         {
-            printf("[UART] mmio_write: Case 1 - IER/DLM\n");
             fflush(stdout);
             if(dlab){
                 u->dlm = val;
@@ -571,19 +518,12 @@ void uart_mmio_write(UARTDevice *u, uint64_t offset, uint32_t val, unsigned size
             // ignore for now
             break;
         default:
-            printf("[UART] mmio_write: Unknown offset 0x%lx\n", offset);
-            fflush(stdout);
             break;
     }
-    printf("[UART] mmio_write: After switch, preparing to release lock\n");
-    fflush(stdout);
     
     pthread_mutex_unlock(&u->lock);
-    printf("[UART] mmio_write: RELEASED lock\n");
     fflush(stdout);
     if(offset == 1|| offset == 4){
-        printf("[UART] mmio_write: Calling uart_update_irq\n");
-        fflush(stdout);
         uart_update_irq(u);
     }
     if(need_irq_update){
@@ -687,9 +627,6 @@ void uart_init(UARTDevice* uart) {
             作用：立即应用新的终端设置，并标记终端已配置。
             原理：TCSANOW 表示立即改变终端属性，不等待输出完成。
         */
-
-
-
         //isatty(STDIN_FILENO) 只是 检测环境是否安全，
         //真正让 UART 行为像硬件的是 把终端设置为原始模式。
 
@@ -711,7 +648,7 @@ void uart_cleanup(UARTDevice* uart) {
 
 void serial_create(UARTDevice *u,const char *serial_dev){
     // 打开串口设备
-    u->serial_fd = open(u->serial_device, O_RDWR | O_NOCTTY | O_NONBLOCK);
+    u->serial_fd = open(u->serial_device, O_RDWR | O_NOCTTY);
     if (u->serial_fd < 0) {
         perror("Failed to open serial device");
         free(u);
@@ -804,6 +741,8 @@ UARTDevice *uart_create(uint64_t base_addr, void *cpu_opaque, int irq_num) {
     u->irq_num = irq_num;
     u->running = true;
     u->plic = &plic;
+    u->serial_fd = -1;
+    u->lsr = (1 << 5) | (1 << 6);
     
     // spawn threads
     if (pthread_create(&u->tx_thread, NULL, uart_tx_thread, u) != 0) {
@@ -881,7 +820,7 @@ uint32_t mmio_read(UARTDevice *uart,uint64_t offset,int size){
 }
 
 void mmio_write(UARTDevice *uart,uint64_t offset, uint32_t val, int size) {
-    printf("mmio offset:0x%08x,val:0x%08x,size:%d\n",offset,val,size);
+    
     uint64_t addr = UART_BASE + offset;
     if (addr >= UART_BASE && addr < UART_BASE + UART_SIZE) {
         uart_mmio_write(uart, offset, val, size);

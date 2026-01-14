@@ -1,10 +1,10 @@
 // src/decode.c
-#include "decode.h"
+
+
 #include "instructions.h"
-#include "memory.h"
-#include <stdio.h>
+#include "decode.h"
 #include "cpu.h"
-#include "trap.h"
+#include "memory.h"
 #include "mmu.h"
 // 指令解码表
 
@@ -142,6 +142,7 @@ void init_i_type_imm_instruction(){
     i_type_imm_instruction[0b101] = exec_si;
     i_type_imm_instruction[0x6] = exec_ori;
     i_type_imm_instruction[0x7] = exec_andi;
+    i_type_imm_instruction[0b100] = exec_xori;
 }
 
 void init_A_instruction(){
@@ -184,13 +185,16 @@ uint32_t fetch_instruction(CPU_State* cpu, uint8_t* memory) {
 
     uint64_t pa = 0;
     uint64_t va = cpu->pc;
+
     pa = get_pa(cpu,va,ACC_FETCH);
     
     uint16_t instr = memory_read(cpu->mem,pa,2) & 0xFFFF;
+
     if((instr & 0x3) == 0x3){
-        return memory_read(cpu->mem,pa,4);
+        uint16_t high = (uint16_t)memory_read(cpu->mem, pa + 2, 2);
+        return ((uint32_t)high << 16) | instr;
     }else{
-        return instr;
+        return (uint32_t)instr;
     }
 }
 

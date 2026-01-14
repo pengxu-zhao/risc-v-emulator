@@ -7,13 +7,14 @@
 #include "cpu.h"
 #include "memory.h"
 #include "elf_load.h"
-#include "tick.h"
+
 #include "instructions.h"
 #include "uart.h"
 #include "bus.h"
 #include "plic.h"
 #include "decode.h"
 #include "virtio_blk.h"
+#include "clint.h"
 
 // x1: returen address
 // x2: stack pointer
@@ -31,12 +32,12 @@
 extern uint8_t* memory;
 extern virtio_blk_device dev;
 Bus bus;
-CPU_State cpu[MAX_CORES];
+extern CPU_State cpu[MAX_CORES];
 int log_enable = 0;
 
  int j = 0;
 
-struct memory_pool pool; 
+
 
 static uint64_t get_real_time_us() {
     struct timeval tv;
@@ -54,7 +55,7 @@ int main() {
     
     // 初始化CPU
     printf("Initializing CPU...\n");
-    memory_pool_init(&pool); 
+
     RAMDevice ram;
     ram.data = memory;
     ram.size = MEMORY_SIZE;
@@ -68,11 +69,6 @@ int main() {
     ram.pending.store_ops = malloc(ram.pending.store_capacity * 
                                    sizeof(*ram.pending.store_ops));
     ram.pending.store_count = 0;
-
-
-
-
-    kalloc_sim(&ram);
 
     uint64_t entry_addr;
     if(load_elf64_SBI("kernel",&entry_addr) < 0){
@@ -113,29 +109,41 @@ int main() {
                     virtio_mmio_read,
                     virtio_mmio_write,
                     &dev);
-    
 
+    bus_register_mmio(&bus,CLINT_BASE_ADDR,
+                         CLINT_SIZE,         
+                        clint_read,
+                        clint_write,
+                        &cpu->clint);
+    
     for(int i = 0; i< 1;i++){
         cpu[i].bus = bus;
-        printf("pc[%d]:0x%08lx\n",i,cpu[i].pc);
+        
         cpu_init(&cpu[i],i);
         tlb_flush(&cpu);
         // 运行模拟器
         printf("Starting RISC-V emulator...cpu privilege: %d\n",cpu[i].privilege);
         printf("Only cpu 0\n");
+     
         // load elf file
         //load_elf32_bare("../../../mini-rtos/rtos",memory,MEMORY_BASE,MEMORY_BASE,&cpu);
         //load_elf32_bare("../../mini-rtos/rtos",memory,MEMORY_SIZE,MEMORY_BASE,&cpu);
         cpu[i].pc = entry_addr;
-       
+        printf("pc[%d]:0x%08lx\n",i,cpu[i].pc);
         static uint64_t old = 0;
         if(cpu[i].halted != true){
                     //
                     //415173710  sleep
                     //422282255   virtio 0x50
                     //
-            for( ;j <= 415005914; j++) {
+            for( ;j <= 515173710; j++) {
                 cpu_step(&cpu[i],memory);
+
+                clint_tick(&cpu->clint, 1);
+
+                if(cpu[0].halted == true){
+                    break;
+                }
 
                 cpu[i].cycle_count++;
                 if(log_enable){
@@ -144,12 +152,12 @@ int main() {
                 cpu->csr[CSR_TIME] += 10;
                 int n = 0;
 
-                if(cpu[i].pc == 0x800023ee){
-                   // printf("j:%ld\n",j);
-                  //  break;
+                if(cpu[i].pc == 0x80001ee4){
+                    printf("j:%ld\n",j);
+                    break;
                 }
 
-                if(cpu[0].csr[CSR_TIME] >= 4150059100){
+                if(cpu[0].csr[CSR_TIME] >= 5151737000){
                    log_enable = 1;
                 }
 

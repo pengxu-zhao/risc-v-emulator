@@ -3,7 +3,7 @@
 #define DECODE_H
 
 #include <stdint.h>
-#include "cpu.h"
+#include "common.h"
 
 // 指令执行函数类型
 typedef void (*instruction_handler_t)(CPU_State* cpu, uint32_t instruction);

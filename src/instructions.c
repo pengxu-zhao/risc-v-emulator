@@ -11,6 +11,7 @@
 extern uint8_t* memory;
 extern int log_enable;
 
+
 static inline print_all_gpr(CPU_State* cpu){
     fprintf(stderr,"x0~x31 value=========================\n");
     for(uint8_t i = 0; i < 32; i++){
@@ -771,6 +772,11 @@ void exec_bge(CPU_State* cpu,uint32_t instr){
     int64_t imm = (int64_t)(((int32_t)imm12 << 19) >> 19);
 
     cpu->pc = cpu->gpr[rs1] >= cpu->gpr[rs2] ? cpu->pc + imm :cpu->pc + 4;
+    if(log_enable){
+        fprintf(stderr,"[bge]x[rs1:%d]:0x%08lx >= x[rs2:%d]:0x%08lx? imm:0x%08lx\n",
+         rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],imm);
+    }
+
     //fprintf(stderr,"-------- a5:0x%08x a4:0x%08x\n",cpu->gpr[rs1],cpu->gpr[rs2]);
 }
 
@@ -1448,10 +1454,14 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
     {
         case 0x1: // csrrw
             {
-            if(rd != 0){
-                cpu->gpr[rd] = cpu->csr[csr];
-            }
+
+            uint64_t old = cpu->csr[csr];
             cpu->csr[csr] = cpu->gpr[rs1];
+
+            if(rd != 0){
+                cpu->gpr[rd] = old;
+            }
+            
             if(log_enable){
             fprintf(stderr,"[csrrw] x[rd:%d]:0x%16lx,x[rs1:%d]:0x%16lx,csr[0x%08x]:0x%16lx\n",
                         rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],csr,cpu->csr[csr]);
@@ -1525,13 +1535,38 @@ void exec_iw(CPU_State* cpu,uint32_t instr){
     uint8_t rs1 = (instr >> 15) & 0x1F;
     uint32_t imm12 = (instr >> 20) & 0xFFF;
     int32_t imm = ((int32_t)imm12 << 20) >> 20;
-    if(rd != 0){
-        cpu->gpr[rd] = (int64_t)((int32_t)cpu->gpr[rs1] + imm);//sext.w
+
+    uint8_t funct7 = (instr >> 25) & 0x7F;
+    uint8_t shamt = (instr >> 20) & 0x1F;
+
+
+    switch (funct3)
+    {
+    case 0b000: //addiw
+        if(rd != 0){
+            cpu->gpr[rd] = (int64_t)((int32_t)cpu->gpr[rs1] + imm);//sext.w
+        }
+        if(log_enable){
+            fprintf(stderr,"[addiw]x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%08x\n",
+            rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],imm);
+        }
+        break;
+    case 0b001: // slliw
+
+        if(rd != 0){
+            cpu->gpr[rd] = (int64_t)((int32_t)cpu->gpr[rs1] << shamt); 
+        }
+        if(log_enable){
+            fprintf(stderr,"[slliw] x[rd:%d]:0x%16lx,x[rs1:%d]:0x%16lx,shamt:0x%08lx\n",
+                        rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],shamt);
+        }
+
+        break;
+    default:
+        break;
     }
-    if(log_enable){
-    fprintf(stderr,"[addiw]x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%08x\n",
-        rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],imm);
-    }
+    
+
     cpu->pc += 4;
 }
 
@@ -1720,8 +1755,6 @@ void exec_wfi(CPU_State* cpu,uint32_t instr){
     uint64_t pending_enabled = mie & mip;
 
 
-
-
     if (pending_enabled && (mstatus & MSTATUS_MIE)) {
         // 有使能的中断待处理，不等待，继续执行
         fprintf(stderr,"[WFI]: Interrupts pending, continuing execution\n");
@@ -1755,7 +1788,7 @@ void exec_wfi(CPU_State* cpu,uint32_t instr){
         
         
         // 立即检查是否有中断需要处理
-        check_pending_and_take(cpu);
+        //check_pending_and_take(cpu);
         
     }
 }
@@ -1767,7 +1800,7 @@ void exec_3b(CPU_State* cpu,uint32_t instr){
     uint8_t rs1 = (instr >> 15) & 0x1F;
     uint8_t rd = (instr >> 7) & 0x1F;
 
-    if(funct7 == 0 && funct3 == 0b001){ // sllw
+    if(funct7 == 0 && funct3 == 1){ //0b001 // sllw
         int32_t data = (cpu->gpr[rs1] & 0xFFFFFFFF);
         uint32_t shamt = (cpu->gpr[rs2] & 0x1F);
         int32_t imm = data << shamt;
@@ -1775,10 +1808,10 @@ void exec_3b(CPU_State* cpu,uint32_t instr){
         cpu->gpr[rd] = (int64_t)imm;
         cpu->pc += 4;
         if(log_enable){
-        fprintf(stderr,"[sllw] x[%d]:0x%08x,x[%d]:0x%08x,imm:0x%16lx\n",
+        fprintf(stderr,"[sllw] x[%d]:0x%08lx,x[%d]:0x%08lx,imm:0x%16x\n",
                rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],imm);
         }
-    }else if(funct7 == 1 && funct3 == 0b111){ //remuw
+    }else if(funct7 == 1 && funct3 == 7 ){//0b111 //remuw
         uint32_t divided = (uint32_t)(cpu->gpr[rs1]);
         uint32_t divisor = (uint32_t)(cpu->gpr[rs2]);
         uint32_t value = 0;
@@ -1799,7 +1832,7 @@ void exec_3b(CPU_State* cpu,uint32_t instr){
             fprintf(stderr,"[remuw] divided(rs1:%d):0x%08lx divisor(rs2:%d):0x%08lx,val(rd:%d):0x%08lx\n",
                 rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],rd,result);
         }
-    }else if(funct7 == 1 && funct3 == 0b101){ //divuw
+    }else if(funct7 == 1 && funct3 == 5){//0b101 //divuw
         uint32_t divided = (uint32_t)(cpu->gpr[rs1]);
         uint32_t divisor = (uint32_t)(cpu->gpr[rs2]);
         uint32_t value = 0;

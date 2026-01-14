@@ -1,4 +1,6 @@
 #include "plic.h"
+#include "cpu.h"
+#include "memory.h"
 
 extern CPU_State cpu[MAX_CORES];
 

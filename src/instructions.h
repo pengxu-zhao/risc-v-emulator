@@ -3,8 +3,8 @@
 #define INSTRUCTIONS_H
 
 #include <stdint.h>
+#include "common.h"
 #include "cpu.h"
-#include "tick.h"
 
 // 基础整数指令 (I扩展)
 void exec_lui(CPU_State* cpu, uint32_t instruction);

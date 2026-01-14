@@ -1,21 +1,21 @@
 // src/cpu.c
 #include "cpu.h"
+#include "bus.h"
 #include "decode.h"
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include "memory.h"
-#include "elf_load.h"
-#include "uart.h"
-#include "trap.h"
-#include "timer.h"
-#include "trap_vector.h"
-#include "tick.h"
-#include "dts.h"
-#include "plic.h"
+
 extern uint8_t* memory;
 extern Bus bus;
 extern int log_enable;
+
+CPU_State cpu[MAX_CORES];
+
+CPU_State* get_current_cpu(void) {
+    return &cpu[0];
+}
+
+static void cpu_timer_interrupt_callback(void);
+static void cpu_software_interrupt_callback(void);
+
 void cpu_init(CPU_State* cpu, uint8_t core_id) {
   
     if (cpu == NULL) {
@@ -26,18 +26,16 @@ void cpu_init(CPU_State* cpu, uint8_t core_id) {
     // 清零所有状态
     memset(cpu, 0, sizeof(CPU_State));
     
-
     cpu->mem_size = MEMORY_SIZE;
     cpu->mem = memory;
 
     cpu->use_relaxed_memory = 0;//use_relaxed;
-    
- 
-    // 设置初始PC
-    //uint64_t entry_addr;
-    //load_elf32_virt(cpu,"../../tests/elf1.elf",&entry_addr);
-    //load_elf32_virt(cpu,"../../build-rtos/mini-rtos/rtos",&entry_addr);
 
+
+    clint_init(&cpu->clint);
+    cpu->clint.timer_interrupt_callback = cpu_timer_interrupt_callback;
+    cpu->clint.software_interrupt_callback = cpu_software_interrupt_callback;
+   
 
         // 创建设备树
         /*
@@ -55,40 +53,17 @@ void cpu_init(CPU_State* cpu, uint8_t core_id) {
     uint32_t magic = *(uint32_t*)&memory[dtb_offset];
     printf("设备树魔数: 0x%08x %s\n", magic, magic == FDT_MAGIC ? "✅" : "❌");
     */
-    timer_init(cpu);
 
     cpu->bus = bus;
-    // 初始化运行状态
+
     cpu->running = true;
 
-    // 初始化重要的CSR寄存器
-    //cpu->csr[CSR_MTVEC] = 0x80000278;
-  
-    cpu->csr[CSR_MSTATUS] = 0x1800;
-    cpu->csr[CSR_MISA] |= ((2ULL << 62)  // MXL=2 (RV64)
-                            | (1 << 8)   //I - 基础ISA
-                            | (1 << 12)  // M - 乘除法
-                            | (1 << 2) // C - 压缩指令
-                            | (1 << 0)); // A - 原子指令
-    cpu->csr[CSR_MCOUNTERN] = 0x7;// 允许用户模式访问cycle/time/instret计数器
-    cpu->csr[CSR_MHARTID] = core_id;
+
     cpu->mip = cpu->csr[CSR_MIP];
     cpu->mie = cpu->csr[CSR_MIE];
 
     
-    cpu->privilege = 3;         // 初始用 M-mode（方便调度）
-    //cpu->satp = (8 << 28) | (4*1024 >> 12);
-    printf("cpu init:0x%08x\n",cpu->satp);
-    //init_page_table(cpu);
 
-
-    // 开启 M 模式下的全局中断
-    write_csr(cpu, CSR_MSTATUS, read_csr(cpu, CSR_MSTATUS) | MSTATUS_MIE);
-    // 允许定时器中断
-    write_csr(cpu, CSR_MIE, read_csr(cpu, CSR_MIE) | MIP_MTIP);
-
-    // 设置中断向量（trap handler 地址）
-    //write_csr(cpu, CSR_MTVEC, TRAP_HANDLER_ADDRESS); 
 
     // 初始化指令表
     init_instruction_table();
@@ -234,3 +209,88 @@ void csr_write_satp(CPU_State *cpu, uint64_t value) {
     cpu->asid = (value >> 22) & 0x3FF;  // 取 satp[31:22] 作为 ASID
 }
 
+uint64_t get_cpu_cycle(CPU_State *cpu){
+    return cpu->cycle_count;
+}
+
+// 时钟中断回调函数
+static void cpu_timer_interrupt_callback(void) {
+    // 这个函数会在时钟中断状态变化时被 CLINT 调用
+    // 更新 CPU 的 MIP 寄存器
+    CPU_State* cpu = get_current_cpu(); // 需要获取当前 CPU 上下文
+    
+    if (cpu) {
+        if (clint_get_timer_interrupt(&cpu->clint)) {
+            cpu->mip |= MIP_MTIP;
+        } else {
+            cpu->mip &= ~MIP_MTIP;
+        }
+        
+        // 检查是否应该处理中断
+        cpu_check_interrupts(cpu);
+    }
+}
+
+// 软件中断回调函数
+static void cpu_software_interrupt_callback(void) {
+    CPU_State* cpu = get_current_cpu();
+    
+    if (cpu) {
+        if (clint_get_software_interrupt(&cpu->clint)) {
+            cpu->mip |= MIP_MSIP;
+        } else {
+            cpu->mip &= ~MIP_MSIP;
+        }
+        
+        cpu_check_interrupts(cpu);
+    }
+}
+
+// 检查并处理中断
+void cpu_check_interrupts(CPU_State* cpu) {
+    if (!cpu) return;
+    
+    // 检查全局中断使能
+    if (!(cpu->mstatus & (1 << 3))) {  // MIE bit
+        return;  // 全局中断禁用
+    }
+    
+    // 检查是否有使能且待处理的中断
+    uint64_t pending = cpu->mip & cpu->mie;
+    
+    // 定时器中断 (优先级通常较高)
+    if (pending & MIP_MTIP) {
+        cpu_take_interrupt(cpu, 0x8000000000000007ULL); // Machine timer interrupt
+        return;
+    }
+    
+    // 软件中断
+    if (pending & MIP_MSIP) {
+        cpu_take_interrupt(cpu, 0x8000000000000003ULL); // Machine software interrupt
+        return;
+    }
+}
+
+// 处理中断
+void cpu_take_interrupt(CPU_State* cpu, uint64_t cause) {
+    // 保存当前状态
+    cpu->mepc = cpu->pc;
+    cpu->mcause = cause;
+    
+    // 设置 MPP 和 MPIE
+    uint64_t mpp = (cpu->mstatus >> 11) & 0x3;  // 当前特权级
+    cpu->mstatus &= ~(0x3 << 11);  // 清除 MPP
+    cpu->mstatus |= (mpp << 11);   // 保存当前特权级
+    
+    cpu->mstatus &= ~(1 << 7);     // 清除 MPIE
+    cpu->mstatus |= ((cpu->mstatus >> 3) & 1) << 7;  // 保存 MIE 到 MPIE
+    
+    // 进入 M-mode
+    cpu->mstatus &= ~(0x3 << 11);  // MPP = M-mode
+    cpu->mstatus &= ~(1 << 3);     // 禁用中断 (MIE=0)
+    
+    // 跳转到中断处理程序
+    cpu->pc = cpu->mtvec;
+    
+    printf("[CPU] Taking interrupt, cause: 0x%016lx, mepc: 0x%016lx\n", cause, cpu->mepc);
+}

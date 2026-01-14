@@ -5,9 +5,14 @@
 #include "bus.h"
 #include "plic.h"
 #include "memory.h"
+#include "mmu.h"
 extern uint8_t* memory;
+extern Bus bus;
+extern CPU_State cpu[MAX_CORES];
 // 全局设备实例
 virtio_blk_device dev;
+
+struct disk_op_list pending_ops;  // 待处理的磁盘操作列表
 
 static void inline phys_write(uint64_t addr,uint64_t value, uint8_t size){
     memory_write(memory,addr,value,size);
@@ -97,15 +102,119 @@ static void complete_request(uint16_t desc_idx, uint8_t status) {
 
     // 更新 used->idx
     phys_write(used_ring + 2, dev.last_used_idx, 2);
-
+  //  printf("[complete_request]\n");
     // 触发中断
     virtio_blk_raise_interrupt();
 }
 
+
+static void complete_disk_operation(struct disk_operation *op) {
+    printf("[VIRTIO] Completing operation for desc %u\n", op->head_desc_idx);
+    
+    // 1. 遍历描述符链，处理数据
+    uint16_t desc_idx = op->head_desc_idx;
+    uint64_t req_addr = 0, data_addr = 0;
+    
+    while (1) {
+        uint64_t desc_base = dev.desc_addr + desc_idx * 16;
+        
+        uint64_t addr = get_pa(&cpu[0],phys_read(desc_base + 0, 8),ACC_LOAD);
+        uint32_t len = phys_read(desc_base + 8, 4);
+        uint16_t flags = phys_read(desc_base + 12, 2);
+        uint16_t next = phys_read(desc_base + 14, 2);
+        
+        // 第一个描述符是 virtio_blk_req
+        if (desc_idx == op->head_desc_idx) {
+            req_addr = addr;
+        } else if (len == 512) {
+            // 数据描述符
+            data_addr = addr;
+        }
+        
+        if (!(flags & VRING_DESC_F_NEXT)) {
+            // 最后一个描述符是状态
+            // 写状态 0 表示成功
+            phys_write(addr, 0, 1);
+            break;
+        }
+        
+        desc_idx = next;
+    }
+    
+    // 2. 处理磁盘 I/O
+    if (req_addr && data_addr) {
+        uint32_t type = phys_read(req_addr, 4);
+        uint64_t sector = phys_read(req_addr + 8, 8);
+        uint64_t offset = sector * 512;
+        
+        if (type == VIRTIO_BLK_T_IN) {
+            // 读操作：磁盘 -> 内存
+            memcpy(memory + (data_addr - MEMORY_BASE), dev.disk_data + offset, 512);
+        } else if (type == VIRTIO_BLK_T_OUT) {
+            // 写操作：内存 -> 磁盘
+            memcpy(dev.disk_data + offset, memory + (data_addr - MEMORY_BASE), 512);
+        }
+    }
+    
+    // 3. 更新 used ring
+    // used->ring[used_idx % queue_num].id = head_desc_idx
+    // used->ring[used_idx % queue_num].len = 数据长度
+    uint64_t used_addr = dev.driver_addr + 0x1000; // used 在 avail 之后
+    uint16_t used_idx = phys_read(used_addr + 2, 2);
+    uint64_t used_ring_offset = 4 + (used_idx % dev.queue_num) * 8;
+    
+    phys_write(used_addr + used_ring_offset, op->head_desc_idx, 2); // id
+    phys_write(used_addr + used_ring_offset + 4, 512, 4); // len
+    
+    // 更新 used->idx
+    used_idx++;
+    phys_write(used_addr + 2, used_idx, 2);
+    
+    // 4. 触发中断
+    dev.interrupt_status = 1;
+    plic_set_irq(VIRTIO_IRQ,1);
+    
+    printf("[VIRTIO] Operation completed, interrupt triggered\n");
+}
+// 在模拟器主循环中定期调用
+void virtio_disk_update(uint64_t current_cycle) {
+    struct disk_operation *op, *next_op;
+    // 手动安全遍历
+    for (op = LIST_FIRST(&pending_ops); op != NULL; op = next_op) {
+        // 提前保存下一个指针
+        next_op = LIST_NEXT(op, entriess);
+        
+        if (!op->completed && current_cycle >= op->completion_time) {
+            printf("[DISK] Operation completed for desc %u\n", op->head_desc_idx);
+            
+            complete_disk_operation(op);
+            LIST_REMOVE(op, entriess);
+            free(op);
+        }
+    }
+}
+
+// 异步处理磁盘操作
+static void start_async_disk_operation(uint16_t head_desc_idx) {
+    // 创建异步操作结构
+    struct disk_operation *op = malloc(sizeof(struct disk_operation));
+    op->head_desc_idx = head_desc_idx;
+    op->start_time = get_cpu_cycle(&cpu[0]);
+    op->completion_time = op->start_time + DISK_LATENCY_CYCLES;
+    op->completed = 0;
+    
+    // 添加到待处理列表
+    LIST_INSERT_HEAD(&pending_ops, op, entriess);
+    
+    printf("[VIRTIO] Started async op for desc %u, completes at cycle %lu\n",
+           head_desc_idx, op->completion_time);
+}
+
 // 处理队列中的所有请求
 static void process_queue() {
-    if (!dev.queue_ready) return;
     printf("ready:%d\n",dev.queue_ready);
+    if (!dev.queue_ready) return;
+    
     printf("driver_addr:0x%08lx\n",dev.driver_addr);
     uint16_t last_avail = get_avail_idx();
 
@@ -115,48 +224,13 @@ static void process_queue() {
         uint16_t avail_idx = prev_avail % dev.queue_num;
         uint16_t desc_idx = phys_read(dev.driver_addr + 4 + avail_idx * 2, 2);  // avail->ring[]
 
-        // 读取描述符链（xv6 用 3 个描述符：req -> data -> status）
-        uint64_t desc_base = dev.desc_addr + desc_idx * 16;
-
-        uint64_t req_addr  = phys_read(desc_base + 0, 8);
-        uint64_t data_addr = phys_read(desc_base + 16, 8);
-        uint64_t stat_addr = phys_read(desc_base + 32, 8);
-
-        uint16_t req_flags = phys_read(desc_base + 8, 2);
-        uint32_t req_len   = phys_read(desc_base + 12, 4);
-        printf("req_flags:%d\n",req_flags);
-        if (req_flags & 2) {  // VRING_DESC_F_NEXT
-            // 读取请求
-            virtio_blk_req req;
-            req.type    = phys_read(req_addr + 0, 4);
-            req.reserved= phys_read(req_addr + 4, 4);
-            req.sector  = phys_read(req_addr + 8, 8);
-
-            uint64_t offset = req.sector * 512;
-            if (offset + 512 <= dev.disk_size_sectors * 512) {
-                if (req.type == VIRTIO_BLK_T_IN) {
-                    // 读：从磁盘 -> guest 内存
-                    memcpy((void*)phys_read_raw(data_addr), dev.disk_data + offset, 512);
-                } else if (req.type == VIRTIO_BLK_T_OUT) {
-                    // 写：guest 内存 -> 磁盘
-                    memcpy(dev.disk_data + offset, (void*)phys_read_raw(data_addr), 512);
-                }
-            }
-
-            // 写 status = 0 (OK)
-            printf("[process queue] addr:0x%08lx\n",stat_addr);
-            phys_write(stat_addr, 0, 1);
-            printf("[222process queue] addr:0x%08lx\n",stat_addr);
-        }
-
-        complete_request(desc_idx, 0);
-
+        start_async_disk_operation(desc_idx);
         prev_avail++;
     }
 }
 
 uint32_t virtio_mmio_read(void *opaque,uint64_t offset,uint8_t size) {
-  //  printf("[virtio_mmio_read] offset:0x%08lx\n",offset);
+    printf("[virtio_mmio_read] offset:0x%08lx\n",offset);
     switch (offset) {
         case 0x000: return 0x74726976;            // MagicValue
         case 0x004: return 2;                     // Version (modern)
@@ -167,7 +241,7 @@ uint32_t virtio_mmio_read(void *opaque,uint64_t offset,uint8_t size) {
         case 0x020: return 0;                     // DriverFeatures
         case 0x034: return 8;                     // QueueNumMax (xv6 用 8)
         case 0x044: return dev.queue_ready;       // QueueReady
-        case 0x060: return 1;                     // InterruptStatus (处理完后清0)
+        case 0x060: return dev.interrupt_status;                     // InterruptStatus (处理完后清0)
         case 0x070: return dev.status;
         case 0x080: return dev.desc_addr & 0xffffffffULL;
         case 0x084: return dev.desc_addr >> 32;
@@ -180,7 +254,7 @@ uint32_t virtio_mmio_read(void *opaque,uint64_t offset,uint8_t size) {
 }
 
 void virtio_mmio_write(void *opaque,uint64_t offset, uint32_t value,uint8_t size) {
-    printf("[mmio write]driver_addr:0x%08lx\n",dev.driver_addr);
+   
     switch (offset) {
         case 0x038: // QueueNum
             dev.queue_num = value;
@@ -191,7 +265,7 @@ void virtio_mmio_write(void *opaque,uint64_t offset, uint32_t value,uint8_t size
             if (dev.queue_ready) dev.last_used_idx = 0;
             break;
         case 0x050:// QueueNotify
-            printf("[0x050]driver_addr:0x%08lx\n",dev.driver_addr);
+         //  printf("[0x050]driver_addr:0x%08lx\n",dev.driver_addr);
             if (value == 0) process_queue();
             break;
         case 0x070: 
@@ -230,8 +304,14 @@ void virtio_mmio_write(void *opaque,uint64_t offset, uint32_t value,uint8_t size
 }
 
 void virtio_blk_raise_interrupt(void) {
-    // 设置 InterruptStatus
-    //bus_write(VIRTIO_MMIO_BASE + 0x060, 1, 4);
+    // 设置InterruptStatus寄存器（告诉驱动有中断）
+   
+    dev.interrupt_status |= 0x3;
+
+    if(dev.interrupt_status & 0x3){
+     //   cpu[0].csr[CSR_SSTATUS] = 0x2;
+    }
+
     plic_set_irq(VIRTIO_IRQ,1);
 
 }

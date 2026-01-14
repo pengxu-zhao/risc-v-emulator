@@ -1,5 +1,4 @@
 #include "trap.h"
-#include "tick.h"
 #include "uart.h"
 
 #define DIRECT 0U

@@ -1,6 +1,6 @@
 
 #include "bus.h"
-#include "memory.h"
+
 extern uint8_t *memory;
 void bus_register_mmio(Bus *bus, uint64_t base, uint64_t size,
                        uint64_t (*read)(void*, uint64_t, unsigned),
@@ -44,7 +44,9 @@ void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
         if (addr >= r->base && addr < r->base + r->size) {
             uint64_t offset = addr - r->base;
             r->write(r->opaque, offset, val, size);
-            //printf("[bus write] offset:0x%08x,val:0x%08x,size:%d\n",offset,val,size);
+            if(r->base == 0x10001000){
+                printf("[bus write] addr:0x%08x,val:0x%08x,size:%d\n",addr,val,size);
+            }
             return;
         }
     }

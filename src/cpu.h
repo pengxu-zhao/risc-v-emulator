@@ -2,66 +2,19 @@
 #ifndef CPU_H
 #define CPU_H
 
+// cpu.h
+
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <inttypes.h>
 #include <stdarg.h>
+#include "common.h"
+#include "clint.h"
 #include "bus.h"
-#include "memory.h"
 
-#define NUM_GPR 32
-#define NUM_FGPR 32
-#define CSR_COUNT 4096
-#define MAX_CORES 4
 
-// 重要的CSR地址定义
-#define SSTATUS_SIE (1 << 1)    // bit 1: Supervisor Interrupt Enable
-#define SSTATUS_SPIE (1 << 5)   // bit 5: Previous SIE
-#define SSTATUS_SPP (1 << 8)    // bit 8: Previous Privilege
 
-#define SIE_SSIE (1ULL << 1)  // bit 1: Software interrupt enable
-#define SIE_STIE (1ULL << 5)  // bit 5: Timer interrupt enable
-#define SIE_SEIE (1ULL << 9)  // bit 9: External interrupt enable
-
-#define SIP_SSIP (1 << 1)   // bit 1: Software interrupt pending/enable
-#define SIP_STIP (1 << 5)   // bit 5: Timer interrupt pending/enable  
-#define SIP_SEIP (1 << 9)   // bit 9: External interrupt pending/enable
-
-#define CSR_SSTATUS  0x100
-#define CSR_SIE      0x104 //supervisor 
-#define CSR_STVEC    0x105
-#define CSR_SEPC     0x141
-#define CSR_SCAUSE   0x142
-#define CSR_STVAL    0X143
-#define CSR_SIP      0x144
-#define CSR_STIMECMP 0x14D //S mode 定时器比较寄存器，用于设置监管者模式的定时器中断。
-#define CSR_SATP     0x180
-#define CSR_MSTATUS  0x300  // 机器状态寄存器
-#define CSR_MISA     0x301
-#define CSR_MEDELEG  0x302 // 委托异常
-#define CSR_MIDELEG  0x303 // 委托中断
-#define CSR_MIE      0x304 //中断使能寄存器
-#define CSR_MTVEC    0x305 //陷阱向量基址寄存器
-#define CSR_MCOUNTERN 0x306 //机器计数器使能
-#define CSR_MEPC     0x341
-#define CSR_MCAUSE   0x342
-#define CSR_MTVAL    0x343
-#define CSR_MIP      0x344
-#define CSR_MTIME    0x701
-#define CSR_MTIMECMP 0x741
-#define CSR_TIME     0xC01 //time - 实际是cycle计数器的别名,记录从系统启动或复位以来经过的"时间单位
-#define CSR_INSTRET  0xC02 //instret - 指令退休计数器 
-
-#define CSR_MENVCFG 0x30A // 配置机器模式下的环境相关特性
-
-#define CSR_PMPADDRO 0x3B0
-#define CSR_PMPCFG0  0x3A0 // pmp0-7
-#define CSR_PMPCFG1  0x3A1 // pmp8-15
-
-#define CSR_MVENDORID 0xF11  //厂商ID
-#define CSR_MARCHID  0xF12   //架构ID
-#define CSR_MIMPID   0xF13   //机器实现ID
-#define CSR_MHARTID  0xF14  //硬件线程ID
 /*
 mstatus：全局中断开关 + 模式保存
 
@@ -80,51 +33,7 @@ mtval：trap 附加信息
 
 
 /* mstatus 位/字段（常用） */
-#define MSTATUS_MIE        (1u << 3)   /* 全局中断使能 */
-#define MSTATUS_MPIE       (1u << 7)   /* 入口时保存的 MIE */
-#define MSTATUS_MPP_SHIFT  11
-#define MSTATUS_MPP_MASK   (3u << MSTATUS_MPP_SHIFT)
-#define MSTATUS_MXR (1 << 19)
-#define MSTATUS_TVM_MASK (1 << 20) //决定是否在 S-mode（监督者模式）下执行虚拟内存相关指令（如 SFENCE.VMA）时触发异常
-                                    //M-mode（机器模式）通过设置 mstatus.TVM 来限制 S-mode 的虚拟内存操作，
-                                    //通常用于虚拟化（hypervisor）场景，防止访客操作系统直接操作页表或 TLB。
-/* mip/mie 位 */
-#define MIP_MSIP  (1u << 3)   /* Machine software interrupt pending */
-#define MIP_MTIP  (1u << 7)   /* Machine timer interrupt pending */
-#define MIP_MEIP  (1u << 11)  /* Machine external interrupt pending */
-#define MIP_STIE (1u << 5) // S mode timer interrupt enable
 
-#define MIE_MSIE  (1u << 3)
-#define MIE_MTIE (1UL << 7)
-#define MIE_MEIE (1UL << 11)
-
-/* 异常代码（同步异常） */
-#define EXC_BREAKPOINT 3
-#define EXC_ECALL_U    8
-#define EXC_ECALL_S    9
-#define EXC_ECALL_M    11
-
-/* 中断编号（mcause 的低位） */
-#define IRQ_M_SOFT  3
-#define IRQ_M_TIMER 7
-#define IRQ_M_EXT   11
-
-#define IRQ_S_SOFT  3
-#define IRQ_S_TIMER 7
-#define IRQ_S_EXT 11
-
-#define SATP_MODE (1 << 31)
-
-#define MIDELEG_SSI    (1L << 1)   // 委托 Software Interrupt 给 S 模式
-#define MIDELEG_MSI    (0L << 3)   // M 模式的 Software Interrupt（实际上不委托）
-#define MIDELEG_STI    (1L << 5)   // 委托 Timer Interrupt 给 S 模式  
-#define MIDELEG_MTI    (0L << 7)   // M 模式的 Timer Interrupt（实际上不委托）
-#define MIDELEG_SEI    (1L << 9)   // 委托 External Interrupt 给 S 模式
-#define MIDELEG_MEI    (0L << 11)  // M 模式的 External Interrupt（实际上不委托）
-
-
-//TLB 
-#define TLB_SIZE 64
 
 typedef struct {
     uint64_t tag;          // 虚拟页号 + ASID
@@ -148,13 +57,6 @@ typedef struct {
     TLB dTLB;  // 数据 TLB
 } CPU_TLB;
 
-// 内存顺序标记
-typedef enum {
-    MEM_ORDER_RELAXED = 0,  // 无顺序要求
-    MEM_ORDER_ACQUIRE = 1,  // 获取语义
-    MEM_ORDER_RELEASE = 2,  // 释放语义
-    MEM_ORDER_ACQ_REL = 3,  // 获取+释放
-} MemoryOrder;
 
 // CPU
 typedef struct {
@@ -224,16 +126,10 @@ typedef struct {
     
     int use_relaxed_memory;  // 是否使用宽松内存模型
 
+    CLINT clint;
 
 } CPU_State;
 
-
-#define FENCE_I (1 << 0)  // 输入（内存读）
-#define FENCE_O (1 << 1)  // 输出（内存写）
-#define FENCE_R (1 << 2)  // 读（同I）
-#define FENCE_W (1 << 3)  // 写（同O）
-
-#define COMPILER_BARRIER() asm volatile("" ::: "memory")
 // 函数声明
 void cpu_init(CPU_State* cpu, uint8_t core_id);
 void cpu_step(CPU_State* cpu, uint8_t* memory);

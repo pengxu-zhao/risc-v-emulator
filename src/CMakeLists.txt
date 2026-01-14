@@ -7,10 +7,9 @@ set(SOURCES
     decode.c
     elf_load.c
     trap.c
-    tick.c
     mmu.c
     uart.c
-    timer.c
+    clint.c
     bus.c
     trap_vector.c
     dts.c
