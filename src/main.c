@@ -15,6 +15,7 @@
 #include "decode.h"
 #include "virtio_blk.h"
 #include "clint.h"
+#include "trap.h"
 
 // x1: returen address
 // x2: stack pointer
@@ -120,51 +121,86 @@ int main() {
         cpu[i].bus = bus;
         
         cpu_init(&cpu[i],i);
+        cpu[i].cycle_count = 0;
+        printf("11cycle_count:%ld\n",cpu[i].cycle_count);
         tlb_flush(&cpu);
         // 运行模拟器
         printf("Starting RISC-V emulator...cpu privilege: %d\n",cpu[i].privilege);
         printf("Only cpu 0\n");
      
-        // load elf file
-        //load_elf32_bare("../../../mini-rtos/rtos",memory,MEMORY_BASE,MEMORY_BASE,&cpu);
-        //load_elf32_bare("../../mini-rtos/rtos",memory,MEMORY_SIZE,MEMORY_BASE,&cpu);
         cpu[i].pc = entry_addr;
         printf("pc[%d]:0x%08lx\n",i,cpu[i].pc);
         static uint64_t old = 0;
-        if(cpu[i].halted != true){
-                    //
-                    //415173710  sleep
-                    //422282255   virtio 0x50
-                    //
-            for( ;j <= 515173710; j++) {
-                cpu_step(&cpu[i],memory);
+        if(cpu[i].halted != true){     
+            
+            //415421550
+            // 415283130  first to 800053ce
 
-                clint_tick(&cpu->clint, 1);
+            // 415283320 pc = 0x00000039 ??
+
+            //j:415283317 pc:0x800018a6   write 0x39 to x[1] ,tomorrow check it
+            //415283285, addr not in any memory region.
+            //执行kexec的时候才会建立PTE_U的页表，kexec在 forkret函数内，
+            //现在刚进入forkret函数 就因为PTE_U为0 而导致翻译出错了，
+           // 目前怀疑进入forkret之前的执行顺序不对，继续往前进行排查
+            //415264564   pc = 800053a6, mepc:0x80000e8e,sepc:0x80001dbe
+            // 硬件在处理中断跳转到stvec前 要讲特权级自动切换到对应的级别。  
+            //发现问题所在是 sret指令的实现，应该是讲特权级切换到 status.xpp保存的特权级，而不是置为0
+
+             for( ;j <= 415284438; j++) {
+                
+                cpu_step(&cpu[i],memory);
+    
+                clint_tick(&cpu->clint, 10);
+             
+                if(log_enable){
+                    printf("[Privelege: %d]\n",cpu[i].privilege);
+                }
+
+                if(cpu[0].pc == 0x80003486){
+                 //    printf("j:%d mepc:0x%08lx,sepc:0x%08lx\n",j,cpu[0].csr[CSR_MEPC],cpu[0].csr[CSR_SEPC]);
+               //      break;
+            
+                }
 
                 if(cpu[0].halted == true){
-                    break;
+                    printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
+                    printf("cycle_count:%ld\n",cpu[i].cycle_count);
+                    break;  
                 }
-
                 cpu[i].cycle_count++;
-                if(log_enable){
-                   // printf("j:%ld\n",j);
-                }
                 cpu->csr[CSR_TIME] += 10;
-                int n = 0;
-
-                if(cpu[i].pc == 0x80001ee4){
-                    printf("j:%ld\n",j);
-                    break;
+            
+         
+                if(cpu[0].csr[CSR_TIME] >= 4152840000){
+                    if(cpu[0].pc >= 0x800018ac && cpu[0].pc <= 0x800018dc){
+                        log_enable = 0;
+                    }else if(cpu[0].pc >= 0x80000bc4 && cpu[0].pc <= 0x80000c06){
+                        log_enable = 0;
+                    }else if(cpu[0].pc >= 0x80000c9c && cpu[0].pc <= 0x80000cd0){
+                        log_enable = 0;
+                    }else if(cpu[0].pc >= 0x80000c08 && cpu[0].pc <= 0x80000c48){
+                        log_enable = 0;
+                    }else if(cpu[0].pc >= 0x8000188c && cpu[0].pc <= 0x800018aa){
+                        log_enable = 0;
+                    }else if(cpu[0].pc >= 0x80000b98 && cpu[0].pc <= 0x80000bc2){
+                        log_enable = 0;
+                    }else if(cpu[0].pc >= 0x80000c4c && cpu[0].pc <= 0x80000c98){
+                        log_enable = 0;
+                    }
+                    else{
+                        log_enable = 1;
+                    }
+                    
                 }
-
-                if(cpu[0].csr[CSR_TIME] >= 5151737000){
-                   log_enable = 1;
-                }
+                
 
                 virtio_disk_update(&cpu[i].cycle_count);
 
                 check_and_handle_interrupts(&cpu[i]);
-
+                if(log_enable){
+                    printf("[after cpu step] pc:0x%08lx\n",cpu[i].pc);
+                }
             }
         }else{
             cpu[i].running = false;

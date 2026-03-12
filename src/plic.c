@@ -3,7 +3,7 @@
 #include "memory.h"
 
 extern CPU_State cpu[MAX_CORES];
-
+extern int log_enable;
 // 验证 IRQ 号是否有效
 static int plic_is_valid_irq(int irq) {
     return (irq >= 1 && irq < MAX_IRQS);
@@ -144,7 +144,14 @@ void plic_complete(int cpu_id, uint32_t irq) {
     int claimed_bit = irq & 0x1F;
     
     plic.claimed[cpu_id][irq >> 5] &= ~(1 << claimed_bit);
+
+    plic.pending[irq >> 5] &= ~(1 << (irq & 0x1F));
+
+    cpu[cpu_id].csr[CSR_MIP] &= ~MIP_MEIP;
     
+    if(log_enable){
+        printf("[completed]cpu_id:%d, csr_mip:0x%16lx\n",cpu_id,cpu[cpu_id].csr[CSR_MIP]);
+    }
     // 只更新该 cpu 的中断状态
     plic_update(cpu_id);
 }
@@ -167,10 +174,11 @@ void plic_update(int cpu_id) {
         if( !(plic.pending[word_index] & (1 << bit_offset))) continue;
 
         //检查是否已被认领
-      //  if(plic.claimed && (plic.claimed[cpu_id][irq >> 5] & (1 << (irq & 0x1F)))){
-       //     continue;
-       // }
-
+        if (plic.claimed[cpu_id][word_index] & (1 << bit_offset)) {
+            printf("[PLIC] IRQ %d already claimed by CPU%d\n", irq, cpu_id);
+            continue;
+        }
+      
         if(plic.priority[irq] > max_priority){
             max_priority = plic.priority[irq];
             max_irq = irq;
@@ -185,6 +193,10 @@ void plic_update(int cpu_id) {
         plic.current_irq[cpu_id] = 0;
     }
     plic.irq_pending[cpu_id] = (max_irq > 0);
+
+     if(log_enable){
+        printf("[update] cpu_id:%d,csr_mip:0x%16lx\n",cpu_id,cpu[cpu_id].csr[CSR_MIP]);
+    }
 }
 
 uint64_t plic_read(void* opaque,uint64_t offset, int size) {
@@ -222,7 +234,7 @@ uint64_t plic_read(void* opaque,uint64_t offset, int size) {
         // 阈值寄存器读取 (每个 cpu 有自己的阈值寄存器)
         case 0x200000 ... 0x20FFFF: {
             // 每个 cpu 占用 0x1000 字节空间
-            int target_cpu = (offset - 0x200000) / 0x1000;
+            int target_cpu = 0;//(offset - 0x200000) / 0x1000;
             int reg_offset = (offset - 0x200000) % 0x1000;
             
             if (target_cpu >= 0 && target_cpu < MAX_CORES) {
@@ -270,7 +282,7 @@ void plic_write(void* opaque,uint64_t offset, uint64_t value, int size) {
         // 阈值和完成寄存器写入 (每个 cpu 有自己的寄存器)
         case 0x200000 ... 0x20FFFF: {
             // 每个 cpu 占用 0x1000 字节空间
-            int target_cpu = (offset - 0x200000) / 0x1000;
+            int target_cpu = 0;//(offset - 0x200000) / 0x1000;
             int reg_offset = (offset - 0x200000) % 0x1000;
             
             if (target_cpu >= 0 && target_cpu < MAX_CORES) {

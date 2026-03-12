@@ -2,7 +2,6 @@
 extern int j ;
 extern int log_enable;
 
-
 // fault codes returned by translate
 
 
@@ -97,6 +96,10 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
 
     uint64_t satp_ppn = cpu->satp & (( 1ULL << 44 ) - 1 );
     uint64_t table_addr = (satp_ppn << 12);
+
+    if(va == 0x3fffffdff8){
+        printf("satp:0x%16lx,table_addr:0x%16lx\n",cpu->satp,table_addr);
+    }
     
     int i = SV39_LEVELS - 1;
 
@@ -117,33 +120,34 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
 
         pte = phys_read_u64(cpu,pte_addr);
 
-         if(va == 0x80000f26)
-            printf("[va]:0x%16lx,[pte]:0x%16lx\n",va,pte);
+        if(va == 0x3fffffdff8){
+            printf("table_addr:0x%08lx, vpn_i:0x%08lx, pte_addr:0x%08lx, pte:0x%016lx\n",table_addr,vpn_i,pte_addr,pte);
+        }
 
         if((pte & PTE_V) == 0) {
-            if(log_enable) printf("111pte:0x%16lx\n",pte);
+            if(va == 0x3fffffdff8) printf("111pte:0x%16lx\n",pte);
             return MMU_FAULT_PAGE;  
         }
 
         int is_leaf = ((pte & PTE_R) != 0) || 
                         ((pte & PTE_X) != 0) || ((pte & PTE_W) != 0);
 
-      if(log_enable)  printf("[leaf]:%d\n",is_leaf);
+      if(va == 0x3fffffdff8)  printf("[leaf]:%d\n",is_leaf);
         if(!is_leaf){
             if (--i < 0) return MMU_FAULT_PAGE;
             uint64_t next_ppn = (pte >> 10) & ((1 << 44) - 1);
             table_addr = next_ppn << 12;
             continue;
         }
-        if(log_enable)  printf("[privilege]:%d\n",cpu->privilege);
+        if(va == 0x3fffffdff8)  printf("[privilege]:%d\n",cpu->privilege);
         if (cpu->privilege == 0) { // user mode
             if ((pte & PTE_U) == 0) {
-                if(log_enable) printf("111pte:0x%16lx\n",pte);
+                if(va == 0x3fffffdff8) printf("111pte:0x%16lx\n",pte);
                 return MMU_FAULT_PAGE;}
         } else if (cpu->privilege == 1) { // supervisor
             
             if ((pte & PTE_U) != 0) {
-                if(log_enable) printf("111pte:0x%16lx\n",pte);
+                if(va == 0x3fffffdff8) printf("222pte:0x%16lx\n",pte);
                 if (!cpu->sum) return MMU_FAULT_PAGE;
                 if (acc_type == ACC_FETCH) return MMU_FAULT_PAGE;
             }
@@ -151,14 +155,14 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
     
         if (acc_type == ACC_LOAD && !(pte & PTE_R)) {
             if (!(cpu->mxr && (pte & PTE_X))) {
-                if(log_enable) printf("111pte:0x%16lx\n",pte);
+                if(va == 0x3fffffdff8) printf("333pte:0x%16lx\n",pte);
                 return MMU_FAULT_PAGE;}
         }
         if (acc_type == ACC_FETCH && !(pte & PTE_X)) {
-            if(log_enable) printf("111pte:0x%16lx\n",pte);
+            if(va == 0x3fffffdff8   ) printf("444pte:0x%16lx\n",pte);
             return MMU_FAULT_PAGE;}
         if (acc_type == ACC_STORE && !(pte & PTE_W)) {
-            if(log_enable) printf("111pte:0x%16lx\n",pte);
+            if(va == 0x3fffffdff8) printf("555pte:0x%16lx\n",pte);
             return MMU_FAULT_PAGE;}
 
         if(i > 0){
@@ -233,7 +237,7 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
         }
       //  printf("[pa] 0x%16lx\n",pa);
         if (!phys_ok(cpu, pa, 1)) {
-            if(log_enable) printf("111pa:0x%16lx\n",pa);   
+            if(va == 0xffffffff80020a50) printf("111pa:0x%16lx\n",pa);   
             return MMU_FAULT_ACCESS;
         }
         *out_pa = pa;
@@ -748,16 +752,16 @@ uint64_t get_pa(CPU_State *cpu,uint64_t vaddr,int acc_type){
     uint64_t satp = cpu->csr[CSR_SATP];
     uint8_t flags = 0;
 
-    if(log_enable)
+    if(vaddr == 0x3fffffdff8)
     {
         printf("vaddr:0x%16lx,satp:0x%16lx\n",vaddr,satp);
     }
     if (((satp >> 60) & 0xF) != 0){
         int result = tlb_lookup(cpu,vaddr,acc_type,&pa,cpu->asid);
-        if(log_enable) printf("tlb result:%d\n",result);
+        if(vaddr == 0x3fffffdff8) printf("tlb result:%d\n",result);
         if(result != MMU_OK){
             result = sv39_translate(cpu,vaddr,acc_type,&pa,&flags);
-            if(log_enable) printf("sv39 result:%d\n",result);
+            if(vaddr == 0x3fffffdff8) printf("sv39 result:%d\n",result);
             if(result == MMU_FAULT_ACCESS){
                 //handle_page_fault(cpu,va,ACC_FETCH);
                 return 0;

@@ -55,5 +55,5 @@ void virtio_blk_init(const char *disk_image_path);
 uint32_t virtio_mmio_read(void *opaque,uint64_t offset,uint8_t size);
 void virtio_mmio_write(void *opaque,uint64_t offset, uint32_t value,uint8_t size) ;
 void virtio_blk_raise_interrupt(void);  
-void virtio_disk_update(uint64_t current_cycle);
+void virtio_disk_update(uint64_t *current_cycle);
 #endif

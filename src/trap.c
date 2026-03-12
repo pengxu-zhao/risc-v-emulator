@@ -3,29 +3,27 @@
 
 #define DIRECT 0U
 #define VECTORED 1U
+extern int log_enable;
 
-static bool should_delegate_to_smode(CPU_State *cpu,uint64_t cause,bool is_interrupt){
+static bool should_delegate_to_smode(CPU_State *cpu,uint64_t cause){
 
-    if(!is_interrupt){
-        return false;
-    }
 
     uint64_t mideleg = read_csr(cpu, CSR_MIDELEG);
 
     switch (cause)
     {
-    case  IRQ_M_TIMER:
-        return (mideleg >> 5) & 1;  //STIP
-        break;
-    case IRQ_M_EXT:
-        return (mideleg >> 9) & 1; //SEIP
-        break;
-    case IRQ_M_SOFT:
-        return (mideleg >> 1) & 1; //SSIP
-        break;
-    default:
-        return false;
-        break;
+        case IRQ_S_SOFT:   // 1
+        case IRQ_S_TIMER:  // 5
+        case IRQ_S_EXT:    // 9
+            return true;
+        case  IRQ_M_TIMER:
+            return (mideleg >> 5) & 1;  //STIP
+        case IRQ_M_EXT:
+            return (mideleg >> 9) & 1; //SEIP
+        case IRQ_M_SOFT:
+            return (mideleg >> 1) & 1; //SSIP
+        default:
+            return false;
     }
 }
 
@@ -57,6 +55,10 @@ static void take_smode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
         cpu->privilege = 1;
 
     uint64_t stvec = read_csr(cpu, CSR_STVEC);
+
+    if(log_enable){
+        printf("[S-Mode Trap] stvec:0x%16lx, scause:0x%16lx\n", stvec, scause);
+    }
     uint64_t base = stvec & ~0x3ULL;
     uint64_t mode = stvec & 0x3;
 
@@ -65,9 +67,15 @@ static void take_smode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
     } else {
         cpu->pc = base;
     }
+
+    if(log_enable){
+        printf("[S-Mode Trap]pc:0x%16lx\n", cpu->pc);
+       
+    }
+
 }
 
-static void take_mmode_tarp(CPU_State *cpu, uint64_t cause, bool is_interrupt){
+static void take_mmode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
       /* 1) 保存 mepc = 当前指令地址（spec: address of the ECALL/EBREAK instr）*/
     write_csr(cpu, CSR_MEPC, cpu->pc);
 
@@ -84,8 +92,6 @@ static void take_mmode_tarp(CPU_State *cpu, uint64_t cause, bool is_interrupt){
     mstatus &= ~MSTATUS_MIE;
     mstatus = (mstatus & ~MSTATUS_MPP_MASK) | ((uint64_t)(cpu->privilege & 3) << MSTATUS_MPP_SHIFT);
     write_csr(cpu, CSR_MSTATUS, mstatus);
-
-    cpu->privilege = 3; /* M */
     
     uint64_t mtvec = read_csr(cpu, CSR_MTVEC);
     uint64_t base = mtvec & ~0x3ULL;
@@ -101,10 +107,10 @@ static void take_mmode_tarp(CPU_State *cpu, uint64_t cause, bool is_interrupt){
 /* cause: 低位为异常/中断编号； is_interrupt: true 表示中断(need set mcause MSB) */
 void take_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
 
-    if(should_delegate_to_smode(cpu,cause,is_interrupt))
+    if(should_delegate_to_smode(cpu,cause))
         take_smode_trap(cpu,cause,is_interrupt);
     else
-        take_mmode_tarp(cpu,cause,is_interrupt);
+        take_mmode_trap(cpu,cause,is_interrupt);
 }
 
 void do_mret(CPU_State *cpu){
@@ -121,46 +127,109 @@ void do_mret(CPU_State *cpu){
     cpu->pc = (uint64_t) read_csr(cpu, CSR_MEPC);
 }
 
-
-
 void check_and_handle_interrupts(CPU_State *cpu){
     uint64_t current_privilege = cpu->privilege;
     bool take_interrupt = false;
-    uint64_t m_cause = 0;  // M-mode 中断号
+    uint64_t cause = 0; 
     bool interrupts_enabled = false;
-
-    if (current_privilege == 3) { //M
-        interrupts_enabled = (cpu->csr[CSR_MSTATUS] & MSTATUS_MIE) != 0;
-    } else if (current_privilege == 1) { //S or U
-        interrupts_enabled = (cpu->csr[CSR_SSTATUS] & SSTATUS_SIE) != 0;
-    } 
-
-    if(!interrupts_enabled) return;
-
+    bool to_s_mode = false;
     uint64_t mip = cpu->csr[CSR_MIP];
     uint64_t mie = cpu->csr[CSR_MIE];
+    uint64_t sie = cpu->csr[CSR_SIE];
+    uint64_t mideleg = cpu->csr[CSR_MIDELEG];
+    uint64_t sstatus = cpu->csr[CSR_SSTATUS];
+    uint64_t mstatus = cpu->csr[CSR_MSTATUS];
 
-    // 外部中断（优先级最高）
-    if ((mip & MIP_MEIP) && (mie & MIE_MEIE)) {
-        m_cause = IRQ_M_EXT;      // 11
-        take_interrupt = true;
-        printf("[INT] M-mode external interrupt pending\n");
-    } else if ((mip & MIP_MTIP) && (mie & MIE_MTIE)) {// 定时器中断
-        m_cause = IRQ_M_TIMER;    // 7
-        take_interrupt = true;
-        printf("[INT] M-mode timer interrupt pending\n");
-    }else if ((mip & MIP_MSIP) && (mie & MIE_MSIE)) {// 软件中断
-        m_cause = IRQ_M_SOFT;     // 3
-        take_interrupt = true;
-        printf("[INT] M-mode software interrupt pending\n");
-    }
-    // 3. 如果需要处理中断
-    if (take_interrupt) {
-        // 对于软件中断，可以在这里清除
-        if (m_cause == IRQ_M_SOFT) {
-            cpu->csr[CSR_MIP] &= ~MIP_MSIP;
+
+    if(current_privilege == 3){
+        if (cpu->csr[CSR_MSTATUS] & MSTATUS_MIE){ 
+            // 外部中断（优先级最高）
+            if (mip & MIP_MEIP) {
+                if (!(mideleg & (1 << 9))){
+                    if(mie & MIE_MEIE)
+                        cause = IRQ_M_EXT;      // 11
+                }
+                else{ 
+                    if ((sstatus & SSTATUS_SIE ) && (sie & SIE_SEIE))
+                        cause = IRQ_S_EXT;
+                    else if(mie & MIE_MEIE)
+                        cause = IRQ_M_EXT;
+                }
+            } else if ((mip & MIP_MTIP) ) {// 定时器中断
+                if (!(mideleg & (1 << 5))){
+                    if(mie & MIE_MTIE)
+                        cause = IRQ_M_TIMER;    // 7
+                }
+                else{
+                    if((sstatus & SSTATUS_SIE ) && (sie & SIE_STIE))
+                        cause = IRQ_S_TIMER;
+                    else if(mie & MIE_MTIE)
+                        cause = IRQ_M_TIMER;
+                }
+            }else if(mip & MIP_MSIP) {// 软件中断
+                if (!(mideleg & (1 << 1))){
+                    if(mie & MIE_MSIE)
+                        cause = IRQ_M_SOFT;     // 3  
+                }
+                else{
+                    if((sstatus & SSTATUS_SIE ) && (sie & SIE_SSIE))
+                        cause = IRQ_S_SOFT;
+                    else if(mie & MIE_MSIE)
+                        cause = IRQ_M_SOFT;
+                }
+            }
         }
-        
-        take_trap(cpu, m_cause, true);
+    }else if(current_privilege <= 1){
+
+        if(cpu->csr[CSR_SSTATUS] & SSTATUS_SIE){
+            uint64_t sip_seip = (mip & MIP_MEIP) && (mideleg & (1 << 9)) ? SIP_SEIP:0;
+            uint64_t sip_stip = (mip & MIP_STIE) && (mideleg & (1 << 5)) ? SIP_STIP:0;
+            uint64_t sip_ssip = (mip & MIP_MSIP) && (mideleg & (1 << 1)) ? SIP_SSIP:0;
+
+            if (sip_seip && (sie & SIE_SEIE)){
+                cause = IRQ_S_EXT;
+            }else if( sip_stip && (sie & SIE_STIE)){
+                cause = IRQ_S_TIMER;
+            }else if(sip_ssip && (sie & SIE_SSIE)){
+                cause = IRQ_S_SOFT;
+            }
+        }
     }
+
+    if (cause == IRQ_M_SOFT || cause == IRQ_S_SOFT) {
+        cpu->csr[CSR_MIP] &= ~MIP_MSIP;
+    }
+
+
+    switch (cause)
+    {
+        case IRQ_S_SOFT:   // 1
+        case IRQ_S_TIMER:  // 5
+        case IRQ_S_EXT:    // 9
+            take_interrupt = true;
+            to_s_mode = true;
+            break;
+        case  IRQ_M_TIMER:
+        case IRQ_M_EXT:
+        case IRQ_M_SOFT:
+            take_interrupt = true;
+            to_s_mode = false;
+            break;
+        default:
+            break;
+    }
+
+    if(log_enable && take_interrupt){
+        printf("[Interrupt Check] privilege=%d, mip=0x%016lx, mie=0x%016lx, sie=0x%016lx, mideleg=0x%016lx, sstatus=0x%016lx, mstatus=0x%016lx, take_interrupt=%d, cause=%lu\n",
+               current_privilege, mip, mie, sie, mideleg, sstatus, mstatus, take_interrupt, cause);
+    }
+  
+    if(take_interrupt){
+        if(!to_s_mode){
+            take_mmode_trap(cpu,cause,true);
+        }else{
+            take_smode_trap(cpu,cause,true);
+        }
+    }
+
 }

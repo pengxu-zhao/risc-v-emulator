@@ -6,6 +6,7 @@ typedef struct {
     // 核心寄存器
     uint64_t mtime;                     // 计时器值（实时递增）
     uint64_t mtimecmp;                  // 比较寄存器
+    uint64_t stimecmp;                  // S模式定时器比较寄存器  sstc 
     uint32_t msip;                      // 软件中断待处理寄存器
     
     // 回调函数指针（用于通知CPU中断）

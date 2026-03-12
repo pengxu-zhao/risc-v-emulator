@@ -1,5 +1,5 @@
 #include "clint.h"
-
+#include "cpu.h"
 void clint_init(CLINT* clint) {
     if (!clint) return;
     
@@ -102,7 +102,7 @@ void clint_write(CLINT* clint, uint64_t addr, uint64_t value, uint32_t size) {
             clint->mtimecmp = (clint->mtimecmp & 0xFFFFFFFF00000000ULL) | (value & 0xFFFFFFFF);
         }
         clint_update_interrupts(clint);
-        // printf("[CLINT] MTIMECMP set to 0x%016lx\n", clint->mtimecmp);
+        printf("[CLINT] MTIMECMP set to 0x%016lx\n", clint->mtimecmp);
         return;
     }
     
@@ -132,28 +132,40 @@ void clint_write(CLINT* clint, uint64_t addr, uint64_t value, uint32_t size) {
         return;
     }
 }
-
+extern int log_enable;
+extern CPU_State cpu[MAX_CORES];   
 void clint_update_interrupts(CLINT* clint) {
     if (!clint) return;
     
+
+    //clint->mtime = cpu[0].csr[CSR_TIME];
+    clint->mtimecmp = cpu[0].csr[CSR_MTIMECMP];
+    clint->stimecmp = cpu[0].csr[CSR_STIMECMP];
+
     // 检查时钟中断：mtime >= mtimecmp
-    bool new_timer_interrupt = (clint->mtime >= clint->mtimecmp);
-    bool new_software_interrupt = (clint->msip != 0);
-    
-    bool timer_changed = (new_timer_interrupt != clint->timer_interrupt_pending);
-    bool software_changed = (new_software_interrupt != clint->software_interrupt_pending);
-    
-    clint->timer_interrupt_pending = new_timer_interrupt;
-    clint->software_interrupt_pending = new_software_interrupt;
-    
-    // 调用回调函数通知中断状态变化
-    if (timer_changed && clint->timer_interrupt_callback) {
-        clint->timer_interrupt_callback();
+    bool new_mtimer_interrupt = (clint->mtime >= clint->mtimecmp);
+    bool new_stimer_interrupt = (clint->mtime >= clint->stimecmp);
+
+    if( new_stimer_interrupt){
+        cpu[0].csr[CSR_MIP] |= MIP_STIE; // 设置机器模式定时器中断挂起位
+    } else {
+        cpu[0].csr[CSR_MIP] &= ~MIP_STIE; // 清除机器模式定时器中断挂起位
+    }
+
+    cpu[0].csr[CSR_SIP] =  cpu[0].csr[CSR_MIP]; // S模式中断挂起位跟随 MIP
+
+    if(new_stimer_interrupt && log_enable){
+        printf("[CLINT] Timer Interrupt Pending: mtime=0x%016lx, stimecmp=0x%016lx\n",
+               clint->mtime, clint->stimecmp);
+        printf("[CLINT] pri:%d,sstatus:0x%08lx,mip:0x%08lx,sie:0x%08lx\n",cpu[0].privilege,cpu[0].csr[CSR_SSTATUS],cpu[0].csr[CSR_MIP],cpu[0].csr[CSR_SIE]);
     }
     
-    if (software_changed && clint->software_interrupt_callback) {
-        clint->software_interrupt_callback();
+    if(log_enable){
+        
+        printf("[CLINT] Update Interrupts: mtime=0x%016lx, stimecmp=0x%016lx, msip=%u\n",
+               clint->mtime, clint->stimecmp, clint->msip);
     }
+
 }
 
 // 时钟前进（模拟时间流逝）

@@ -58,6 +58,7 @@ static void handle_system(CPU_State* cpu,uint32_t instruction){
             system_table[0xA](cpu,instruction);
         }else if(imm12 == 0x102){
             //sret
+            system_table[0x102](cpu,instruction);
         }else if(imm12 == 0x002){
             //uret
         }else if(imm12 == 0x105){
@@ -164,6 +165,7 @@ void init_system_instrcution(){
     system_table[0x09] = exec_sfencevma;
     system_table[0xA] = exec_mret;
     system_table[0x105] = exec_wfi;
+    system_table[0x102] = exec_sret;
     csr_instr[0x1] = exec_csr;
     
 }

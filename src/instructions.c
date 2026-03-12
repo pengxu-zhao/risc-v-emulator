@@ -66,7 +66,7 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
                 cpu->gpr[rd] = val;
             }
             if(log_enable){
-                fprintf(stderr,"[c.lw] x[%d]:0x%08lx, pa:0x%08lx\n",rd,val,pa);
+                fprintf(stderr,"[c.lw] x[%d]:0x%08lx,addr:0x%16lx, pa:0x%08lx\n",rd,val,addr,pa);
             }
             cpu->pc += 2;
             break;
@@ -124,6 +124,7 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
         cpu->gpr[rd] = val;
         cpu->pc += 2;
         if(log_enable){
+            fprintf(stderr,"[c.ld] vaddr:0x%16lx\n",vaddr);
             fprintf(stderr,"[c.ld load 64bits] x[%d]:0x%16lx = load from pa:0x%16lx\n",
                 rd,cpu->gpr[rd],pa);
         }
@@ -238,7 +239,10 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
                                 ((instr >> 6) & 0x1) << 4 |
                                 ((instr >> 12) & 0x1) << 9;
 
-                int64_t imm = (int64_t)((int32_t)(imm6 << 22) >> 22);
+                int64_t imm = (int64_t)((int32_t)(imm6 << 23) >> 23);
+                if(log_enable){
+                    fprintf(stderr,"[before c.addi16sp] x[2]:0x%08lx,imm:0x%08lx\n",cpu->gpr[2],imm);
+                }
                 cpu->gpr[rd] += imm; 
                 cpu->pc += 2;
                 if(log_enable){
@@ -338,7 +342,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
             }
             break;
         }
-    case 0b111://c.bnez  not equal ,jump to (pc+imm)
+    case 0b111://c.bnez  not equal to 0,jump to (pc+imm)
     {
         uint32_t imm8 = ((instr >> 3) & 0x3) << 1|
                         ((instr >> 10) & 0x3) << 3|
@@ -521,6 +525,10 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         uint64_t vaddr = cpu->gpr[2] + imm;
 
         int64_t val = 0;
+        if(log_enable){
+            fprintf(stderr,"[before c.sdsp] x[%d]:0x%16lx,vaddr:0x%16lx,imm:0x%08lx\n",
+                rs2,cpu->gpr[rs2],vaddr,imm);
+        }
 
         uint64_t pa = get_pa(cpu,vaddr,ACC_STORE);
 
@@ -1157,11 +1165,12 @@ static void load_lb(CPU_State* cpu,uint64_t addr,uint8_t rd){
 static void load_lbu(CPU_State* cpu,uint64_t addr,uint8_t rd){
     uint32_t val = 0;
     val = (uint32_t)bus_read(&cpu->bus,addr,1);
+ 
     if(rd != 0){
-        cpu->gpr[rd] = val;
+        cpu->gpr[rd] = val; 
     }
     if(log_enable){
-        fprintf(stderr,"[lbu] x[%d]:0x%16lx,val:0x%16lx,addr:0x%08lx\n",rd,val,addr);
+        fprintf(stderr,"[lbu] x[%d]:0x%16lx,val:0x%16lx,addr:0x%08lx\n",rd,cpu->gpr[rd],val,addr);
     }
 }
 
@@ -1194,6 +1203,11 @@ void exec_load(CPU_State *cpu,uint32_t instruction){
     int64_t imm = (int64_t)(((int32_t)imm12 << 20) >> 20);
 
     uint64_t addr = cpu->gpr[rs1] + imm;
+
+    if(log_enable){
+        printf("[before transmit] rs1: x[%d]:0x%16lx, imm:0x%16lx, addr:0x%16lx\n",
+                rs1,cpu->gpr[rs1],imm,addr);
+    }
 
     addr = get_pa(cpu,addr,ACC_LOAD);
 
@@ -1925,6 +1939,54 @@ void exec_divu(CPU_State *cpu,uint32_t instr){
     fprintf(stderr,"[remu] x[%d]:0x%016lx,x[%d]:0x%016lx,x[%d]:0x%016lx\n",
             rd,cpu->gpr[rd],rs1,cpu->gpr[rs2],rd,cpu->gpr[rs2]
     );
+    }
+
+}
+
+void exec_sret(CPU_State *cpu,uint32_t instr){
+    
+    if(cpu->privilege < 1){
+        return;
+    }
+
+    uint64_t sepc = cpu->csr[CSR_SEPC];
+
+
+    // 验证 sepc 对齐（最低位必须为 0
+    if(sepc & 0x1){
+        return ;
+    }
+
+    if(log_enable){
+        fprintf(stderr,"[sret] sepc:0x%16lx\n",sepc);
+    }
+
+    cpu->pc = sepc;
+
+    uint64_t sstatus = cpu->csr[CSR_SSTATUS];
+    uint64_t spp = (sstatus >> 8) & 0x1;  // SPP 位
+    
+    // 恢复特权级
+    cpu->privilege = (spp == 1) ? 1 : 0;
+  
+    // 恢复 SIE 位（SPIE → SIE）
+    uint64_t spie = (sstatus >> 5) & 0x1;  // SPIE 位
+    sstatus &= ~(1L << 1);  // 清除 SIE 位
+    sstatus |= (spie << 1); // 用 SPIE 恢复 SIE
+
+     // 清除 SPIE 位
+    sstatus &= ~(1L << 5);
+    
+    // 清除 SPP 位（设置为 0，表示来自 U 模式）
+    sstatus &= ~(1L << 8);
+    
+    // 更新 sstatus
+    cpu->csr[CSR_SSTATUS] = sstatus;
+
+
+    if(log_enable){
+        printf("[sret] privilege:%d,sstatus:0x%16lx\n",cpu->privilege,cpu->csr[CSR_SSTATUS]);
+        printf("[sret] Returning to address: 0x%16lx\n", cpu->pc);
     }
 
 }

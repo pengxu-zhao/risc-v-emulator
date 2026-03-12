@@ -446,7 +446,7 @@ void uart_mmio_write(UARTDevice *u, uint64_t offset, uint32_t val, unsigned size
         }
         case 1:
         {
-            fflush(stdout);
+         
             if(dlab){
                 u->dlm = val;
             }else{

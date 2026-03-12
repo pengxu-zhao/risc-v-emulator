@@ -11,7 +11,6 @@ extern int log_enable;
 
 void init_memory(){
 
-    // 分配内存
      memory = (uint8_t*)malloc(MEMORY_SIZE);
 
    // memory = (uint8_t*)aligned_alloc(4096, MEMORY_SIZE);
@@ -25,10 +24,8 @@ void init_memory(){
         return;
     }
 
-    // 初始化内存为0
     printf("Zeroing memory...\n");
     memset(memory, 0, MEMORY_SIZE);
-    printf("[0x100000]:0x%08lx\n",memory[0x100000]);
 }
 extern CPU_State cpu[MAX_CORES];
 extern int j;
@@ -61,7 +58,7 @@ uint64_t memory_read(uint8_t* memory, uint64_t address, size_t size) {
     uint64_t value = 0;
     //memcpy(&value, memory + phys_addr, size);
      for (int i = 0; i < size; i++) {
-        value |=  (memory[offset+i] & 0xFF ) << (i * 8);  // 小端序
+        value |=  ((uint64_t)memory[offset+i] & 0xFF ) << (i * 8);  // 小端序
     }
 
 

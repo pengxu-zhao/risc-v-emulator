@@ -9,6 +9,7 @@
 extern uint8_t* memory;
 extern Bus bus;
 extern CPU_State cpu[MAX_CORES];
+extern int log_enable;
 // 全局设备实例
 virtio_blk_device dev;
 
@@ -86,6 +87,7 @@ static uint16_t get_avail_idx() {
 
     printf("[get_avail_idx] driver_addr:0x%08lx\n",dev.driver_addr);
     uint16_t idx = phys_read(dev.driver_addr + 2, 2);  // avail->idx (uint16_t offset 2)
+            //avail_ring 前 2 字节是标志位，后 2 字节是 idx
     return idx;
 }
 
@@ -116,9 +118,10 @@ static void complete_disk_operation(struct disk_operation *op) {
     uint64_t req_addr = 0, data_addr = 0;
     
     while (1) {
-        uint64_t desc_base = dev.desc_addr + desc_idx * 16;
-        
-        uint64_t addr = get_pa(&cpu[0],phys_read(desc_base + 0, 8),ACC_LOAD);
+        uint64_t desc_base = dev.desc_addr + desc_idx * 16;//第 desc_idx 个描述符
+                                                //(16= 8 字节 addr、4 字节 len、2 字节 flags、2 字节 next)
+        uint64_t f_addr = phys_read(desc_base + 0, 8);        
+        uint64_t addr = get_pa(&cpu[0],f_addr,ACC_LOAD);
         uint32_t len = phys_read(desc_base + 8, 4);
         uint16_t flags = phys_read(desc_base + 12, 2);
         uint16_t next = phys_read(desc_base + 14, 2);
@@ -130,7 +133,7 @@ static void complete_disk_operation(struct disk_operation *op) {
             // 数据描述符
             data_addr = addr;
         }
-        
+ 
         if (!(flags & VRING_DESC_F_NEXT)) {
             // 最后一个描述符是状态
             // 写状态 0 表示成功
@@ -159,8 +162,9 @@ static void complete_disk_operation(struct disk_operation *op) {
     // 3. 更新 used ring
     // used->ring[used_idx % queue_num].id = head_desc_idx
     // used->ring[used_idx % queue_num].len = 数据长度
-    uint64_t used_addr = dev.driver_addr + 0x1000; // used 在 avail 之后
+    uint64_t used_addr = dev.device_addr; // used 在 avail 之后
     uint16_t used_idx = phys_read(used_addr + 2, 2);
+    printf("[complete_disk_operation] used_idx before update: %d\n", used_idx);
     uint64_t used_ring_offset = 4 + (used_idx % dev.queue_num) * 8;
     
     phys_write(used_addr + used_ring_offset, op->head_desc_idx, 2); // id
@@ -169,6 +173,7 @@ static void complete_disk_operation(struct disk_operation *op) {
     // 更新 used->idx
     used_idx++;
     phys_write(used_addr + 2, used_idx, 2);
+    printf("[VIRTIO] used_idx addr: 0x%16lx, value: %d\n", used_addr + 2, used_idx);
     
     // 4. 触发中断
     dev.interrupt_status = 1;
@@ -176,17 +181,16 @@ static void complete_disk_operation(struct disk_operation *op) {
     
     printf("[VIRTIO] Operation completed, interrupt triggered\n");
 }
-// 在模拟器主循环中定期调用
-void virtio_disk_update(uint64_t current_cycle) {
+
+void virtio_disk_update(uint64_t *current_cycle) {
     struct disk_operation *op, *next_op;
     // 手动安全遍历
     for (op = LIST_FIRST(&pending_ops); op != NULL; op = next_op) {
         // 提前保存下一个指针
         next_op = LIST_NEXT(op, entriess);
-        
-        if (!op->completed && current_cycle >= op->completion_time) {
+
+        if (!op->completed && *current_cycle >= op->completion_time) {
             printf("[DISK] Operation completed for desc %u\n", op->head_desc_idx);
-            
             complete_disk_operation(op);
             LIST_REMOVE(op, entriess);
             free(op);
@@ -198,8 +202,9 @@ void virtio_disk_update(uint64_t current_cycle) {
 static void start_async_disk_operation(uint16_t head_desc_idx) {
     // 创建异步操作结构
     struct disk_operation *op = malloc(sizeof(struct disk_operation));
-    op->head_desc_idx = head_desc_idx;
+    op->head_desc_idx = head_desc_idx; //描述符链的头部索引 idx[0] 
     op->start_time = get_cpu_cycle(&cpu[0]);
+    printf("current count:%ld\n",op->start_time);
     op->completion_time = op->start_time + DISK_LATENCY_CYCLES;
     op->completed = 0;
     
@@ -212,14 +217,11 @@ static void start_async_disk_operation(uint16_t head_desc_idx) {
 
 // 处理队列中的所有请求
 static void process_queue() {
-    printf("ready:%d\n",dev.queue_ready);
     if (!dev.queue_ready) return;
     
-    printf("driver_addr:0x%08lx\n",dev.driver_addr);
     uint16_t last_avail = get_avail_idx();
 
     static uint16_t prev_avail = 0;
-    printf("last_avail:0x%08lx\n",last_avail);
     while (prev_avail != last_avail) {
         uint16_t avail_idx = prev_avail % dev.queue_num;
         uint16_t desc_idx = phys_read(dev.driver_addr + 4 + avail_idx * 2, 2);  // avail->ring[]
@@ -230,7 +232,6 @@ static void process_queue() {
 }
 
 uint32_t virtio_mmio_read(void *opaque,uint64_t offset,uint8_t size) {
-    printf("[virtio_mmio_read] offset:0x%08lx\n",offset);
     switch (offset) {
         case 0x000: return 0x74726976;            // MagicValue
         case 0x004: return 2;                     // Version (modern)

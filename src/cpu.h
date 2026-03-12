@@ -140,4 +140,5 @@ static inline uint64_t read_csr(CPU_State *cpu, unsigned id){ return cpu->csr[id
 static inline void write_csr(CPU_State *cpu, unsigned id, uint64_t v){ cpu->csr[id & 0xfff] = v; }
 uint64_t get_cpu_cycle(CPU_State *cpu);
 
+
 #endif

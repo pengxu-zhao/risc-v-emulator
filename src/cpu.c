@@ -2,10 +2,12 @@
 #include "cpu.h"
 #include "bus.h"
 #include "decode.h"
+#include "plic.h"
 
 extern uint8_t* memory;
 extern Bus bus;
 extern int log_enable;
+extern PLICState plic;
 
 CPU_State cpu[MAX_CORES];
 
@@ -74,10 +76,10 @@ void cpu_init(CPU_State* cpu, uint8_t core_id) {
 
 void cpu_step(CPU_State* cpu, uint8_t* memory) {
 
-    if(cpu->halted){
+   /* if(cpu->halted){
         cpu->pc += 4;
         return;
-    }
+    }*/
 
     if (cpu == NULL) {
         printf("ERROR: CPU pointer is NULL in cpu_step!\n");
@@ -139,7 +141,6 @@ void cpu_step(CPU_State* cpu, uint8_t* memory) {
         trap_vectored_handler(cpu);
     } */
     // 更新性能计数器
-    cpu->cycle_count++;
     cpu->inst_count++;
    
    // clint_tick(cpu, 1); // 1 cycle
@@ -294,3 +295,4 @@ void cpu_take_interrupt(CPU_State* cpu, uint64_t cause) {
     
     printf("[CPU] Taking interrupt, cause: 0x%016lx, mepc: 0x%016lx\n", cause, cpu->mepc);
 }
+

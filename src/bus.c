@@ -37,6 +37,9 @@ uint64_t bus_read(Bus *bus, uint64_t addr, unsigned size) {
     printf("[bus_read]addr:0x%16lx not in any mmio region\n",addr);
     
 }
+#include "cpu.h"
+extern int j;
+extern CPU_State cpu[MAX_CORES];
 
 void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
     for (int i = 0; i < bus->region_count; i++) {
@@ -44,9 +47,6 @@ void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
         if (addr >= r->base && addr < r->base + r->size) {
             uint64_t offset = addr - r->base;
             r->write(r->opaque, offset, val, size);
-            if(r->base == 0x10001000){
-                printf("[bus write] addr:0x%08x,val:0x%08x,size:%d\n",addr,val,size);
-            }
             return;
         }
     }
@@ -58,4 +58,5 @@ void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
     }
 
     printf("[bus_write]addr:0x%16lx not in any mmio region\n",addr);
+    cpu[0].halted = true; // 遇到非法访问时停止 CPU
 }
