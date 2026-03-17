@@ -79,7 +79,7 @@ int main() {
     }
 
     virtio_blk_init("fs.img");
-    printf("=====init driveraddr:0x%16lx\n",dev.driver_addr);
+    printf("=====init driveraddr:0x%16lx\n",dev.avail_ring);
 
     bus_register_mmio(&bus, 
                     MEMORY_BASE, MEMORY_SIZE, 
@@ -144,23 +144,55 @@ int main() {
             //现在刚进入forkret函数 就因为PTE_U为0 而导致翻译出错了，
            // 目前怀疑进入forkret之前的执行顺序不对，继续往前进行排查
             //415264564   pc = 800053a6, mepc:0x80000e8e,sepc:0x80001dbe
-            // 硬件在处理中断跳转到stvec前 要讲特权级自动切换到对应的级别。  
+            // 硬件在处理中断跳转到stvec前 特权级自动切换到对应的级别。  
             //发现问题所在是 sret指令的实现，应该是讲特权级切换到 status.xpp保存的特权级，而不是置为0
+            
 
-             for( ;j <= 415284438; j++) {
-                
+
+
+            //415421361 pc = 0x800053ce
+            //415283483 pc = 0x80003486  fsinit
+
+            //80001dbe jinru clint 5380
+
+            //brelse -> releasesleep  chufa clint
+
+            //415421382
+
+            //415389550
+            //[c.sdsp] addr:0x      3fffffdf48,pa:0x87fb7f48,x[1]:0x        80000cc2
+            //c4e  x[2]:0x      3fffffdf40
+            //c7c  x[2]:0x      3fffffdd40 
+            // 415421607
+            for( ;j <= 422265685; j++) {
+           
                 cpu_step(&cpu[i],memory);
-    
                 clint_tick(&cpu->clint, 10);
-             
-                if(log_enable){
-                    printf("[Privelege: %d]\n",cpu[i].privilege);
+                cpu[i].cycle_count++;
+                cpu->csr[CSR_TIME] += 10;
+                if(cpu[0].csr[CSR_TIME] >= 4222655000){
+                    log_enable = 1;
+                }
+                if(cpu[0].halted == true){
+                    printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
+                    break;  
                 }
 
-                if(cpu[0].pc == 0x80003486){
-                 //    printf("j:%d mepc:0x%08lx,sepc:0x%08lx\n",j,cpu[0].csr[CSR_MEPC],cpu[0].csr[CSR_SEPC]);
-               //      break;
-            
+                if(cpu[0].pc == 0x800038b0){
+                   // printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
+                  //  break;
+                }
+                /*
+
+                if(cpu[0].csr[CSR_SEPC] != 0x80000c7c && j > 415389650){
+                    printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
+                    break;
+                }
+
+                //j:415285876 pc:0x80001f54
+                if(cpu[0].gpr[15] == 3 && cpu[0].pc == 0x80001d82 && j > 415407980){
+                   // printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
+                   // break;
                 }
 
                 if(cpu[0].halted == true){
@@ -168,11 +200,10 @@ int main() {
                     printf("cycle_count:%ld\n",cpu[i].cycle_count);
                     break;  
                 }
-                cpu[i].cycle_count++;
-                cpu->csr[CSR_TIME] += 10;
-            
-         
-                if(cpu[0].csr[CSR_TIME] >= 4152840000){
+                
+        
+                
+                if(cpu[0].csr[CSR_TIME] >= 4154213000){
                     if(cpu[0].pc >= 0x800018ac && cpu[0].pc <= 0x800018dc){
                         log_enable = 0;
                     }else if(cpu[0].pc >= 0x80000bc4 && cpu[0].pc <= 0x80000c06){
@@ -191,16 +222,20 @@ int main() {
                     else{
                         log_enable = 1;
                     }
-                    
-                }
-                
-
+                   
+                } */
+               
                 virtio_disk_update(&cpu[i].cycle_count);
-
+          
                 check_and_handle_interrupts(&cpu[i]);
-                if(log_enable){
-                    printf("[after cpu step] pc:0x%08lx\n",cpu[i].pc);
-                }
+            
+               //uint64_t val = bus_read(&bus,0x87fb7de8,8);
+                
+               // uint64_t val2 = bus_read(&bus,0x87fb7e90,8);
+               // if((j > 414297515) && val != 0x505050505050505){
+                   // printf("j:%d pc:0x%08lx\n",j,cpu[i].pc);
+                  //  break;
+               // }
             }
         }else{
             cpu[i].running = false;
@@ -213,7 +248,11 @@ int main() {
         printf("Cleaning up...\n");
         
         //free(memory);
-        printf("Emulator finished j:%ld\n",j);
+        printf("Emulator finished j:%ld,pc:0x%08lx\n",j,cpu[0].pc);
+
+
+        printf("sstatus:0x%08lx\n",cpu[0].csr[CSR_SSTATUS]);
+        printf("sip:0x%08lx\n",cpu[0].csr[CSR_SIP]);
 
         uint32_t val1 = 0;
         uint32_t val2 = 0;

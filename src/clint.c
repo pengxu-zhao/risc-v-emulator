@@ -1,5 +1,7 @@
 #include "clint.h"
 #include "cpu.h"
+
+extern int j;
 void clint_init(CLINT* clint) {
     if (!clint) return;
     
@@ -102,7 +104,7 @@ void clint_write(CLINT* clint, uint64_t addr, uint64_t value, uint32_t size) {
             clint->mtimecmp = (clint->mtimecmp & 0xFFFFFFFF00000000ULL) | (value & 0xFFFFFFFF);
         }
         clint_update_interrupts(clint);
-        printf("[CLINT] MTIMECMP set to 0x%016lx\n", clint->mtimecmp);
+        // printf("[CLINT] MTIMECMP set to 0x%016lx\n", clint->mtimecmp);
         return;
     }
     
@@ -155,9 +157,16 @@ void clint_update_interrupts(CLINT* clint) {
     cpu[0].csr[CSR_SIP] =  cpu[0].csr[CSR_MIP]; // S模式中断挂起位跟随 MIP
 
     if(new_stimer_interrupt && log_enable){
-        printf("[CLINT] Timer Interrupt Pending: mtime=0x%016lx, stimecmp=0x%016lx\n",
-               clint->mtime, clint->stimecmp);
-        printf("[CLINT] pri:%d,sstatus:0x%08lx,mip:0x%08lx,sie:0x%08lx\n",cpu[0].privilege,cpu[0].csr[CSR_SSTATUS],cpu[0].csr[CSR_MIP],cpu[0].csr[CSR_SIE]);
+        if(j > 400000000 && cpu[0].csr[CSR_SSTATUS] & SSTATUS_SIE){
+        
+
+        //printf("[CLINT] Timer Interrupt Pending: mtime=0x%016lx, stimecmp=0x%016lx\n",
+        //       clint->mtime, clint->stimecmp);
+        //printf("[CLINT] pri:%d,sstatus:0x%08lx,mip:0x%08lx,sie:0x%08lx\n",cpu[0].privilege,cpu[0].csr[CSR_SSTATUS],cpu[0].csr[CSR_MIP],cpu[0].csr[CSR_SIE]);
+        
+        
+        
+        }
     }
     
     if(log_enable){

@@ -34,7 +34,7 @@ uint64_t memory_read(uint8_t* memory, uint64_t address, size_t size) {
         printf("Read ERROR: memory pointer is NULL!\n");
         return 0;
     }
-        
+
     uint64_t offset = 0;
     if(address >= MEMORY_BASE){
         offset = address - MEMORY_BASE; //physical_address(address);
@@ -45,7 +45,6 @@ uint64_t memory_read(uint8_t* memory, uint64_t address, size_t size) {
     }else if(address >= PLIC_BASE){
         offset = address - PLIC_BASE;
     }
-
 
     if (offset + size > MEMORY_SIZE) {
         printf("fetch Read ERROR: Memory read out of bounds: address=0x%08x, offset=0x%08x, size=%zu\n", 
@@ -60,7 +59,6 @@ uint64_t memory_read(uint8_t* memory, uint64_t address, size_t size) {
      for (int i = 0; i < size; i++) {
         value |=  ((uint64_t)memory[offset+i] & 0xFF ) << (i * 8);  // 小端序
     }
-
 
     return value;
 }

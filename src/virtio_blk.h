@@ -22,8 +22,8 @@ typedef struct {
     // 队列相关（xv6 只用 queue 0）
     uint16_t queue_num;          // 驱动设置的队列大小（xv6 用 8）
     uint64_t desc_addr;          // 描述符表物理地址
-    uint64_t driver_addr;        // avail ring 物理地址
-    uint64_t device_addr;        // used ring 物理地址
+    uint64_t avail_ring;        // avail ring 物理地址
+    uint64_t used_ring;        // used ring 物理地址
     uint16_t last_used_idx;      // 用于写入 used ring
     int queue_ready;             // 1 表示队列已就绪
     int status;

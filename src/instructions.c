@@ -238,10 +238,12 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
                                 ((instr >> 5) & 0x1) << 6 |
                                 ((instr >> 6) & 0x1) << 4 |
                                 ((instr >> 12) & 0x1) << 9;
+               
 
-                int64_t imm = (int64_t)((int32_t)(imm6 << 23) >> 23);
+                int64_t imm = (int64_t)((int32_t)(imm6 << 22) >> 22);
                 if(log_enable){
-                    fprintf(stderr,"[before c.addi16sp] x[2]:0x%08lx,imm:0x%08lx\n",cpu->gpr[2],imm);
+                    fprintf(stderr,"[before c.addi16sp] x[2]:0x%08lx,imm:%d\n",cpu->gpr[2],imm);
+                    fprintf(stderr,"[imm6] imm6:0x%08lx\n",imm6);
                 }
                 cpu->gpr[rd] += imm; 
                 cpu->pc += 2;
@@ -439,7 +441,10 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
                         ((instr >> 5) & 0x3) << 3 |
                         ((instr >> 12) & 0x1) << 5;
         uint64_t imm = (uint64_t)(uint32_t)imm6;
-        
+        if(log_enable){
+            printf("[before c.ldsp]x[2]:0x%16lx ,imm:0x%16lx\n",cpu->gpr[2],imm);
+        }
+
         uint64_t vaddr = cpu->gpr[2] + imm;
         int64_t val = 0;
 
@@ -449,7 +454,8 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         cpu->gpr[rd] = val;
         cpu->pc += 2;
         if(log_enable){
-            fprintf(stderr,"[c.ldsp] x[%d]:0x%16lx,vaddr:0x%16lx,pa:0x%08lx\n",rd,cpu->gpr[rd],vaddr,pa);
+            fprintf(stderr,"[c.ldsp] x[%d]:0x%16lx,vaddr:0x%16lx,pa:0x%08lx\n",
+                                        rd,cpu->gpr[rd],vaddr,pa);
         }
         break;
     }
@@ -485,7 +491,9 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
                 }
             }else{ //c.jalr   
                 cpu->gpr[0x1] = cpu->pc+2;
-                cpu->pc = cpu->gpr[rs1];
+                if(rs1 != 0){
+                    cpu->pc = cpu->gpr[rs1] & ~1ULL; // 将最低位置0
+                }
                 if(log_enable){
                 fprintf(stderr,"[c.jarl or c.ret] x[0x1]:0x%16lx,pc = x[%d]:0x%16lx\n",
                         cpu->gpr[0x1],rs1,cpu->gpr[rs1]);
@@ -524,6 +532,11 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         uint64_t imm = (uint64_t)imm6;
         uint64_t vaddr = cpu->gpr[2] + imm;
 
+        if(log_enable){
+
+            printf("[c.sdsp] x[2]:0x%16lx, imm:0x%16lx\n",cpu->gpr[2],imm);
+        }
+
         int64_t val = 0;
         if(log_enable){
             fprintf(stderr,"[before c.sdsp] x[%d]:0x%16lx,vaddr:0x%16lx,imm:0x%08lx\n",
@@ -536,7 +549,8 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         
         cpu->pc += 2;
         if(log_enable){
-        fprintf(stderr,"[c.sdsp] addr:0x%16lx,pa:0x%08lx,x[%d]:0x%16lx\n",vaddr,pa,rs2,cpu->gpr[rs2]);
+        fprintf(stderr,"[c.sdsp] addr:0x%16lx,pa:0x%08lx,x[%d]:0x%16lx\n",
+                                        vaddr,pa,rs2,cpu->gpr[rs2]);
         }
 
         
@@ -1026,6 +1040,10 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
 
     case 0b11://SD
     {
+        if(log_enable){
+            printf("[exec_sd] x[%d]:0x%16lx\n",
+               rs2,cpu->gpr[rs2] );
+        }
         cpu_store64(cpu, pa, (uint64_t)value);
         if(log_enable){
         fprintf(stderr,"[sd store 8bytes] x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%16lx\n",
@@ -1336,7 +1354,7 @@ void exec_sltiu(CPU_State* cpu,uint32_t instr){
 
 void exec_si(CPU_State* cpu,uint32_t instr){
  
-    uint8_t funct7 = (instr >> 25) & 0x7F;
+    uint8_t funct7 = (instr >> 26) & 0x3F;
     uint8_t shamt = (instr >> 20) & 0x3F;
     uint8_t rs1 = (instr >> 15) & 0x1F;
     uint8_t rd = (instr >> 7) & 0x1F;
@@ -1347,7 +1365,7 @@ void exec_si(CPU_State* cpu,uint32_t instr){
         if(rd != 0){
             cpu->gpr[rd] = (uint64_t)cpu->gpr[rs1] >> shamt; // 逻辑右移 SRLI
         if(log_enable){
-        fprintf(stderr,"[srli] x[%d]:0x%16lx,x[%d]:0x%16lx\n",rd,cpu->gpr[rd],rs1,cpu->gpr[rs1]);
+            fprintf(stderr,"[srli] x[%d]:0x%16lx,x[%d]:0x%16lx\n",rd,cpu->gpr[rd],rs1,cpu->gpr[rs1]);
         }
         }
         break;

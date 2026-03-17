@@ -25,7 +25,7 @@ static void handle_i_imm_type(CPU_State* cpu,uint32_t instruction){
     uint8_t funct3 = (instruction >> 12) & 0x7;
 
     i_type_imm_instruction[funct3](cpu,instruction);
-
+    
 }
 static void handle_r_type(CPU_State* cpu,uint32_t instruction){
     /*
