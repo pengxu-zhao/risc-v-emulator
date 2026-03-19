@@ -19,6 +19,12 @@ static inline print_all_gpr(CPU_State* cpu){
     }
 }
 
+static void write_gpr(CPU_State* cpu,uint8_t rd,uint64_t val){
+    if(rd != 0){
+        cpu->gpr[rd] = val;
+    }
+}
+
 
 void exec_c0(CPU_State* cpu,uint16_t instr){
     /*
@@ -974,26 +980,25 @@ void exec_div(CPU_State* cpu,uint32_t instr){
 
 
 //S
-static void cpu_store8(CPU_State* cpu,uint64_t addr,uint8_t val){
+static void cpu_store8_pa(CPU_State* cpu,uint64_t pa,uint8_t val){
     //memory_write(cpu->mem,addr,val,1);
-    uint64_t pa = get_pa(cpu,addr,ACC_STORE);
 
     bus_write(&cpu->bus,pa,val,1);
 }
 
-void cpu_store16(CPU_State *cpu, uint64_t addr, uint16_t val) {
+void cpu_store16_pa(CPU_State *cpu, uint64_t pa, uint16_t val) {
 
-    bus_write(&cpu->bus,addr,val & 0xFF,2);
+    bus_write(&cpu->bus,pa,val,2);
 }
 
-void cpu_store32(CPU_State *cpu, uint64_t addr, uint32_t val) {
+void cpu_store32_pa(CPU_State *cpu, uint64_t pa, uint32_t val) {
 
-    bus_write(&cpu->bus,addr,val,4);
+    bus_write(&cpu->bus,pa,val,4);
 }
 
-void cpu_store64(CPU_State *cpu, uint64_t addr, uint64_t val) {
+void cpu_store64_pa(CPU_State *cpu, uint64_t pa, uint64_t val) {
     
-    bus_write(&cpu->bus,addr,val,8);
+    bus_write(&cpu->bus,pa,val,8);
 }
 void exec_store(CPU_State* cpu,uint32_t instructions){
 /*
@@ -1018,7 +1023,7 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
     {
     case 0x0: //SB
     {
-        cpu_store8(cpu, pa, (uint8_t)(value & 0xFF));
+        cpu_store8_pa(cpu, pa, (uint8_t)(value & 0xFF));
         if(log_enable){
         fprintf(stderr,"[Sb load 1 byte] x[%d]:0x%16lx + imm:0x%16lx = pa:0x%16lx,value = x[%d]:0x%16lx\n",
                rs1,cpu->gpr[rs1],imm,pa,rs2,cpu->gpr[rs2] );
@@ -1026,13 +1031,14 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
         break;
     }
     case 0x1: //SH
-        cpu_store16(cpu, pa, (uint16_t)(value & 0xFFFF));
+       
+        cpu_store16_pa(cpu, pa, (uint16_t)(value & 0xFFFF));
         if(log_enable){
             fprintf(stderr,"[sh] pa:0x%08lx,val:0x%08lx\n",pa,(uint16_t)(value & 0xFFFF));
         }
         break;
     case 0x2://SW
-        cpu_store32(cpu, pa, value);
+        cpu_store32_pa(cpu, pa, value & 0xFFFFFFFF);
         if(log_enable){
             fprintf(stderr,"[exec_sw] pa:0x%08x,value:0x%08x,x[%d]:0x%16lx\n",pa,value,rs2,cpu->gpr[rs2]);
         }
@@ -1044,7 +1050,7 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
             printf("[exec_sd] x[%d]:0x%16lx\n",
                rs2,cpu->gpr[rs2] );
         }
-        cpu_store64(cpu, pa, (uint64_t)value);
+        cpu_store64_pa(cpu, pa, (uint64_t)value);
         if(log_enable){
         fprintf(stderr,"[sd store 8bytes] x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%16lx\n",
                 rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],imm);
@@ -1180,6 +1186,15 @@ static void load_lb(CPU_State* cpu,uint64_t addr,uint8_t rd){
         cpu->gpr[rd] = val;
     }
 }
+
+static void load_lh(CPU_State* cpu,uint64_t addr,uint8_t rd){
+    int32_t val = 0;
+    val = (int32_t)(int16_t)bus_read(&cpu->bus,addr,2);
+    if(rd != 0){
+        cpu->gpr[rd] = val;
+    }
+}
+
 static void load_lbu(CPU_State* cpu,uint64_t addr,uint8_t rd){
     uint32_t val = 0;
     val = (uint32_t)bus_read(&cpu->bus,addr,1);
@@ -1236,8 +1251,11 @@ void exec_load(CPU_State *cpu,uint32_t instruction){
        load_lb(cpu,addr,rd);
        
         break;
-    case 0x1:
-    
+    case 0x1: //lh
+        load_lh(cpu,addr,rd);
+        if(log_enable){
+        fprintf(stderr,"[lh load 2 bytes] x[%d]:0x%16lx,addr:0x%16lx\n",rd,cpu->gpr[rd],addr);
+        }
         break;
     case 0x2:
     {
@@ -1624,7 +1642,8 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
                 }
                 uint32_t tmp = bus_read(&cpu->bus,addr,4);
                 bus_write(&cpu->bus,addr,cpu->gpr[rs2],4);
-                cpu->gpr[rd] = tmp;
+
+                write_gpr(cpu,rd,tmp);
                 cpu->pc += 4;
                 if(log_enable){
                 fprintf(stderr,"[AMOSWAP.W] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx,tmp:0x%08x",
