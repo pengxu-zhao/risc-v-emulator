@@ -42,6 +42,12 @@ extern int j;
 extern CPU_State cpu[MAX_CORES];
 
 void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
+        if(addr == 0x10001094 || addr == 0x100010a4){
+        printf("[bus_write -> virtio_mmio_write] offset:0x%08lx, value:0x%08lx, size: %d\n", addr, val, size);
+    }
+    
+
+
     for (int i = 0; i < bus->region_count; i++) {
         MMIORegion *r = &bus->regions[i];
         if (addr >= r->base && addr < r->base + r->size) {
@@ -50,9 +56,10 @@ void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
             return;
         }
     }
-    
+
+
     // 默认写内存
-    if(addr > MEMORY_BASE && addr + size - 1 < MEMORY_BASE + MEMORY_SIZE){
+    if(addr >= MEMORY_BASE && addr + size - 1 < MEMORY_BASE + MEMORY_SIZE){
         memcpy(&memory[addr - MEMORY_BASE], &val, size);
         return;
     }

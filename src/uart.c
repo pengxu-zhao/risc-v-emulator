@@ -7,6 +7,7 @@
 #include "uart.h"
 #include "cpu.h"
 #include <ctype.h>
+extern int log_enable;
 
 static void uart_update_lsr(UARTDevice *u) {
     u->lsr = 0;
@@ -348,6 +349,10 @@ uint32_t uart_mmio_read(UARTDevice *u, uint64_t offset, unsigned size) {
         case 5: //lsr
         {
             res = u->lsr;
+            if(log_enable){
+                fprintf(stderr, "[UART] LSR read: 0x%08lx\n",res); 
+              
+            }   
             break;
         }
         case 6: //msr

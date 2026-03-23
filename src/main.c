@@ -122,7 +122,6 @@ int main() {
         
         cpu_init(&cpu[i],i);
         cpu[i].cycle_count = 0;
-        printf("11cycle_count:%ld\n",cpu[i].cycle_count);
         tlb_flush(&cpu);
         // 运行模拟器
         printf("Starting RISC-V emulator...cpu privilege: %d\n",cpu[i].privilege);
@@ -163,47 +162,34 @@ int main() {
             //[c.sdsp] addr:0x      3fffffdf48,pa:0x87fb7f48,x[1]:0x        80000cc2
             //c4e  x[2]:0x      3fffffdf40
             //c7c  x[2]:0x      3fffffdd40 
-            // 415421607
-            for( ;j <= 422265685; j++) {
+            // 422351780   forkret panic
+            //422248695
+            //421315535  namei return 0
+            //422043084 kexec return -1
+           
+            for( ;j <= 422042988; j++) {
            
                 cpu_step(&cpu[i],memory);
                 clint_tick(&cpu->clint, 10);
                 cpu[i].cycle_count++;
                 cpu->csr[CSR_TIME] += 10;
-                if(cpu[0].csr[CSR_TIME] >= 4222655000){
-                    log_enable = 1;
-                }
+              
                 if(cpu[0].halted == true){
-                    printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
-                    break;  
+                    //printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
+                   // break;  
                 }
-
-                if(cpu[0].pc == 0x800038b0){
-                   // printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
+                if(cpu[0].pc == 0x80001910){
+                    printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
                   //  break;
                 }
-                /*
 
-                if(cpu[0].csr[CSR_SEPC] != 0x80000c7c && j > 415389650){
+
+                if(cpu[0].gpr[0] != 0){
                     printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
                     break;
                 }
 
-                //j:415285876 pc:0x80001f54
-                if(cpu[0].gpr[15] == 3 && cpu[0].pc == 0x80001d82 && j > 415407980){
-                   // printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
-                   // break;
-                }
-
-                if(cpu[0].halted == true){
-                    printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
-                    printf("cycle_count:%ld\n",cpu[i].cycle_count);
-                    break;  
-                }
-                
-        
-                
-                if(cpu[0].csr[CSR_TIME] >= 4154213000){
+                if(cpu[0].csr[CSR_TIME] >= 4220429000){
                     if(cpu[0].pc >= 0x800018ac && cpu[0].pc <= 0x800018dc){
                         log_enable = 0;
                     }else if(cpu[0].pc >= 0x80000bc4 && cpu[0].pc <= 0x80000c06){
@@ -218,12 +204,21 @@ int main() {
                         log_enable = 0;
                     }else if(cpu[0].pc >= 0x80000c4c && cpu[0].pc <= 0x80000c98){
                         log_enable = 0;
+                    }else if(cpu[0].pc >= 0x80001830 && cpu[0].pc <= 0x8000184a){
+                        log_enable = 0;
+                    }else if(cpu[0].pc >= 0x80000b6c && cpu[0].pc <= 0x80000baa){
+                        log_enable = 0;
+                    }else if(cpu[0].pc >= 0x80000b42 && cpu[0].pc <= 0x80000b68){
+                        log_enable = 0;     
+                    }else if(cpu[0].pc >= 0x8000187c && cpu[0].pc <= 0x80001896){
+                        log_enable = 0;
                     }
                     else{
-                        log_enable = 1;
+                        log_enable = 0;
                     }
-                   
-                } */
+                }
+
+             
                
                 virtio_disk_update(&cpu[i].cycle_count);
           

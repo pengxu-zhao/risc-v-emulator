@@ -1050,6 +1050,7 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
             printf("[exec_sd] x[%d]:0x%16lx\n",
                rs2,cpu->gpr[rs2] );
         }
+     
         cpu_store64_pa(cpu, pa, (uint64_t)value);
         if(log_enable){
         fprintf(stderr,"[sd store 8bytes] x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%16lx\n",
@@ -1387,7 +1388,7 @@ void exec_si(CPU_State* cpu,uint32_t instr){
         }
         }
         break;
-    case 0x0100000:
+    case 0b010000:
         if(rd != 0){
             cpu->gpr[rd] = (int64_t)cpu->gpr[rs1] >> shamt; // 算术右移 SRAI
         }

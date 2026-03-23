@@ -154,7 +154,7 @@ void ram_write(void *opaque, uint64_t offset, uint64_t value, unsigned size) {
         ram->data[offset+i] = val;
       //  printf("ram->data[0x%08lx]:0x%08lx\n",offset+i,val);
     }
-
+    
     COMPILER_BARRIER();
 }
 
