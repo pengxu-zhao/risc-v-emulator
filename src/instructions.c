@@ -325,10 +325,18 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
                 cpu->gpr[rd] -= cpu->gpr[rs2];
                 cpu->pc += 2;
             }else if(funct2_56 == 0b01){ //c.addw
+            if(log_enable){
+                    fprintf(stderr,"[before c.addw] x[%d]:0x%16lx , x[%d]:0x%16lx\n",
+                        rd,cpu->gpr[rd],rs2,cpu->gpr[rs2]);
+                }
+
                 int32_t sum = (int32_t)cpu->gpr[rd] + (int32_t)cpu->gpr[rs2];
                 cpu->gpr[rd] = (int32_t)sum;
                 cpu->pc += 2;
-
+                if(log_enable){
+                    fprintf(stderr,"[c.addw] x[%d]:0x%16lx = x[%d]:0x%16lx + x[%d]:0x%16lx\n",
+                        rd,cpu->gpr[rd],rd,cpu->gpr[rd],rs2,cpu->gpr[rs2]);
+                }
             }
         }
         break;
@@ -1611,7 +1619,25 @@ void exec_iw(CPU_State* cpu,uint32_t instr){
             fprintf(stderr,"[slliw] x[rd:%d]:0x%16lx,x[rs1:%d]:0x%16lx,shamt:0x%08lx\n",
                         rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],shamt);
         }
-
+        break;
+    case 0b101: 
+        if(funct7 == 0b0000000){//srliw
+            if(rd != 0){
+                cpu->gpr[rd] = (int64_t)(int32_t)((uint32_t)cpu->gpr[rs1] >> shamt); 
+            }
+            if(log_enable){
+                fprintf(stderr,"[srliw] x[rd:%d]:0x%16lx,x[rs1:%d]:0x%16lx,shamt:0x%08lx\n",
+                            rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],shamt);
+            }
+        }else if(funct7 == 0b0100000){ //sraiw
+            if(rd != 0){
+                cpu->gpr[rd] = (int64_t)((int32_t)cpu->gpr[rs1] >> shamt); 
+            }
+            if(log_enable){
+                fprintf(stderr,"[sraiw] x[rd:%d]:0x%16lx,x[rs1:%d]:0x%16lx,shamt:0x%08lx\n",
+                            rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],shamt);
+            }
+        }
         break;
     default:
         break;
