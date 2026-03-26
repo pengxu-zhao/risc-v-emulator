@@ -375,7 +375,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
             cpu->pc += 2;
         }
         if(log_enable){
-        fprintf(stderr,"[c.bnez]x[%d]:0x%16lx,imm:0x%16lx\n",rs1,cpu->gpr[rs1],imm);
+        fprintf(stderr,"[c.bnez not equal to 0,jump]x[%d]:0x%16lx,imm:0x%16lx\n",rs1,cpu->gpr[rs1],imm);
         }
 
         break;
@@ -395,7 +395,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
             cpu->pc += 2;
         }
         if(log_enable){
-        fprintf(stderr,"[c.beqz]x[%d]:0x%16lx, imm:0x%16lx\n",rs1,cpu->gpr[rs1],imm);
+        fprintf(stderr,"[c.beqz rs1==0 jump]x[%d]:0x%16lx, imm:0x%16lx\n",rs1,cpu->gpr[rs1],imm);
         }
 
         break;
@@ -1481,8 +1481,8 @@ void exec_andi(CPU_State* cpu,uint32_t instr){ //zext.b  &0xff
     */
     uint8_t rd = (instr >> 7) & 0x1F;
     uint8_t rs1 = (instr >> 15) & 0x1F;
-    uint64_t imm12 = (instr >> 20) & 0xFFF;
-    int64_t imm = (int64_t)((int32_t)imm12);
+    
+    int64_t imm = (int64_t)((int32_t)instr >> 20);
 
     if(rd != 0){
         cpu->gpr[rd] = cpu->gpr[rs1] & imm;
@@ -1941,6 +1941,19 @@ void exec_3b(CPU_State* cpu,uint32_t instr){
             cpu->gpr[rd] = result;
         }
         cpu->pc += 4;
+    }else if(funct7 == 0b0100000 && funct3 == 0){ //subw
+        int32_t rs1_val = (int32_t)cpu->gpr[rs1];
+        int32_t rs2_val = (int32_t)cpu->gpr[rs2];
+        int32_t val = rs1_val - rs2_val;
+        int64_t result = (int64_t)val;
+        if(rd != 0){
+            cpu->gpr[rd] = result;
+        }
+        cpu->pc += 4;
+    }
+    else{
+        fprintf(stderr,"Unknown 3b instruction: funct7=0x%02x,funct3=0x%01x\n",funct7,funct3);
+        
     }
 }
 
