@@ -77,7 +77,7 @@ void memory_write(uint8_t* memory, uint64_t address, uint64_t value, size_t size
     }
 
     uint64_t vl = phys_addr + size;
-    printf("vl:0x%llx\n",vl);
+
     if (phys_addr + size > MEMORY_SIZE) {
         printf("ERROR: Memory write out of bounds: address=0x%llx, phys=0x%08x, size=%zu\n", 
                address, phys_addr, size);

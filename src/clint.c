@@ -36,7 +36,7 @@ uint64_t clint_read(CLINT* clint, uint64_t addr, uint32_t size) {
             // MSIP 寄存器只有 bit0 有效
             return clint->msip & 0x1;
         }
-        printf("[CLINT] Warning: MSIP read with size %u\n", size);
+       // printf("[CLINT] Warning: MSIP read with size %u\n", size);
         return 0;
     }
     
@@ -48,7 +48,7 @@ uint64_t clint_read(CLINT* clint, uint64_t addr, uint32_t size) {
             // 读取低32位
             return clint->mtimecmp & 0xFFFFFFFF;
         }
-        printf("[CLINT] Warning: MTIMECMP read with size %u\n", size);
+      //  printf("[CLINT] Warning: MTIMECMP read with size %u\n", size);
         return 0;
     }
     
@@ -60,7 +60,7 @@ uint64_t clint_read(CLINT* clint, uint64_t addr, uint32_t size) {
             // 读取低32位
             return clint->mtime & 0xFFFFFFFF;
         }
-        printf("[CLINT] Warning: MTIME read with size %u\n", size);
+       // printf("[CLINT] Warning: MTIME read with size %u\n", size);
         return 0;
     }
     
@@ -73,8 +73,8 @@ uint64_t clint_read(CLINT* clint, uint64_t addr, uint32_t size) {
         return (clint->mtime >> 32) & 0xFFFFFFFF;
     }
     
-    printf("[CLINT] Read from unmapped address: 0x%016lx (offset: 0x%lx, size: %u)\n", 
-           addr, offset, size);
+    //printf("[CLINT] Read from unmapped address: 0x%016lx (offset: 0x%lx, size: %u)\n", 
+    //       addr, offset, size);
     return 0;
 }
 
@@ -91,7 +91,7 @@ void clint_write(CLINT* clint, uint64_t addr, uint64_t value, uint32_t size) {
             clint_update_interrupts(clint);
             // printf("[CLINT] MSIP set to %u\n", clint->msip);
         } else {
-            printf("[CLINT] Warning: MSIP write with size %u\n", size);
+       //     printf("[CLINT] Warning: MSIP write with size %u\n", size);
         }
         return;
     }
@@ -171,8 +171,8 @@ void clint_update_interrupts(CLINT* clint) {
     
     if(log_enable){
         
-        printf("[CLINT] Update Interrupts: mtime=0x%016lx, stimecmp=0x%016lx, msip=%u\n",
-               clint->mtime, clint->stimecmp, clint->msip);
+       // printf("[CLINT] Update Interrupts: mtime=0x%016lx, stimecmp=0x%016lx, msip=%u\n",
+       //        clint->mtime, clint->stimecmp, clint->msip);
     }
 
 }

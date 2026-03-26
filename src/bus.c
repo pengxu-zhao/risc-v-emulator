@@ -13,7 +13,7 @@ void bus_register_mmio(Bus *bus, uint64_t base, uint64_t size,
     bus->regions[n].read = read;
     bus->regions[n].write = write;
     bus->regions[n].opaque = opaque;
-    printf("[BUS] MMIO registered: base=0x%x size=0x%lx\n", base, size);
+    //printf("[BUS] MMIO registered: base=0x%x size=0x%lx\n", base, size);
 }
 
 // bus.c
@@ -34,7 +34,7 @@ uint64_t bus_read(Bus *bus, uint64_t addr, unsigned size) {
         return val; 
     }
 
-    printf("[bus_read]addr:0x%16lx not in any mmio region\n",addr);
+    //printf("[bus_read]addr:0x%16lx not in any mmio region\n",addr);
     
 }
 #include "cpu.h"
@@ -43,7 +43,7 @@ extern CPU_State cpu[MAX_CORES];
 
 void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
         if(addr == 0x10001094 || addr == 0x100010a4){
-        printf("[bus_write -> virtio_mmio_write] offset:0x%08lx, value:0x%08lx, size: %d\n", addr, val, size);
+      //  printf("[bus_write -> virtio_mmio_write] offset:0x%08lx, value:0x%08lx, size: %d\n", addr, val, size);
     }
     
 

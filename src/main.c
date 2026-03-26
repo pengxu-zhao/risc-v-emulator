@@ -166,8 +166,9 @@ int main() {
             //422248695
             //421315535  namei return 0
             //422043084 kexec return -1
-           
-            for( ;j <= 422042988; j++) {
+           //422145303
+           //422163752    - 18450
+            for( ;j <= 423254775; j++) {
            
                 cpu_step(&cpu[i],memory);
                 clint_tick(&cpu->clint, 10);
@@ -178,18 +179,18 @@ int main() {
                     //printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
                    // break;  
                 }
-                if(cpu[0].pc == 0x80001910){
-                    printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
-                  //  break;
+                if(cpu[0].pc == 0x8000488a && j > 422959815){ 
+                   //printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
+                    //break;
                 }
-
-
+    
                 if(cpu[0].gpr[0] != 0){
                     printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
                     break;
                 }
-
-                if(cpu[0].csr[CSR_TIME] >= 4220429000){
+                
+           
+                if(cpu[0].csr[CSR_TIME] >= 4232547000){
                     if(cpu[0].pc >= 0x800018ac && cpu[0].pc <= 0x800018dc){
                         log_enable = 0;
                     }else if(cpu[0].pc >= 0x80000bc4 && cpu[0].pc <= 0x80000c06){
@@ -214,12 +215,10 @@ int main() {
                         log_enable = 0;
                     }
                     else{
-                        log_enable = 0;
+                        log_enable = 1;
                     }
-                }
+                } 
 
-             
-               
                 virtio_disk_update(&cpu[i].cycle_count);
           
                 check_and_handle_interrupts(&cpu[i]);

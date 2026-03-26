@@ -172,15 +172,11 @@ void init_system_instrcution(){
 
 
 void init_instruction_table() {
-    printf("Initializing instruction table...\n");
     init_opcode_table();
     init_r_type_instruction();
     init_i_type_imm_instruction();
-   
     init_B_instr();
     init_system_instrcution();
-
-    printf("Instruction table initialized\n");
 } 
 
 uint32_t fetch_instruction(CPU_State* cpu, uint8_t* memory) {
