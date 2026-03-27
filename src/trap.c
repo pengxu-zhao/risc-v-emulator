@@ -141,7 +141,7 @@ void check_and_handle_interrupts(CPU_State *cpu){
     uint64_t mstatus = cpu->csr[CSR_MSTATUS];
 
 
-    if(current_privilege == 3){
+    if(current_privilege == 3){ //M mode
         if (cpu->csr[CSR_MSTATUS] & MSTATUS_MIE){ 
             // 外部中断（优先级最高）
             if (mip & MIP_MEIP) {
@@ -181,25 +181,26 @@ void check_and_handle_interrupts(CPU_State *cpu){
         }
     }else if(current_privilege <= 1){
 
-        if(cpu->csr[CSR_SSTATUS] & SSTATUS_SIE){
-            uint64_t sip_seip = (mip & MIP_MEIP) && (mideleg & (1 << 9)) ? SIP_SEIP:0;
-            uint64_t sip_stip = (mip & MIP_STIE) && (mideleg & (1 << 5)) ? SIP_STIP:0;
-            uint64_t sip_ssip = (mip & MIP_MSIP) && (mideleg & (1 << 1)) ? SIP_SSIP:0;
+        uint64_t sip_seip = (mip & MIP_MEIP) && (mideleg & (1 << 9)) ? SIP_SEIP:0;
+        uint64_t sip_stip = (mip & MIP_MTIP) && (mideleg & (1 << 5)) ? SIP_STIP:0;
+        uint64_t sip_ssip = (mip & MIP_MSIP) && (mideleg & (1 << 1)) ? SIP_SSIP:0;
+        
+        if(current_privilege == 1){
+            if(!(cpu->csr[CSR_SSTATUS] & SSTATUS_SIE))   return;
+        }
 
-            if (sip_seip && (sie & SIE_SEIE)){
-                cause = IRQ_S_EXT;
-            }else if( sip_stip && (sie & SIE_STIE)){
-                cause = IRQ_S_TIMER;
-            }else if(sip_ssip && (sie & SIE_SSIE)){
-                cause = IRQ_S_SOFT;
-            }
+        if (sip_seip && (sie & SIE_SEIE)){  
+            cause = IRQ_S_EXT;
+        }else if(sip_stip && (sie & SIE_STIE)){
+            cause = IRQ_S_TIMER;
+        }else if(sip_ssip && (sie & SIE_SSIE)){
+            cause = IRQ_S_SOFT;
         }
     }
 
     if (cause == IRQ_M_SOFT || cause == IRQ_S_SOFT) {
         cpu->csr[CSR_MIP] &= ~MIP_MSIP;
     }
-
 
     switch (cause)
     {
