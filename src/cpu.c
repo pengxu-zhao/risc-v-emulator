@@ -92,14 +92,14 @@ void cpu_step(CPU_State* cpu, uint8_t* memory) {
     }
     
     if(log_enable){
-        printf("Fetching instruction from PC: 0x%08x\n", cpu->pc);
+        printf("Fetching instruction from PC: 0x%016lx\n", cpu->pc);
     }
 
     // 取指
     
     uint64_t instruction = fetch_instruction(cpu, memory);
     if(log_enable){
-    printf("Instruction: 0x%08x\n", instruction);
+        printf("Instruction: 0x%08x\n", instruction);
     }
     // 解码和执行
     decode_and_execute(cpu, instruction);

@@ -15,6 +15,8 @@ virtio_blk_device dev;
 
 struct disk_op_list pending_ops;  // 待处理的磁盘操作列表
 
+static BlockCache bc;
+
 static void inline phys_write(uint64_t addr,uint64_t value, uint8_t size){
     memory_write(memory,addr,value,size);
 }
@@ -41,6 +43,21 @@ uint8_t* phys_write_raw(uint64_t addr) {
 
     uint64_t offset = addr - MEMORY_BASE;
     return &memory[offset];
+}
+
+
+void load_block(uint64_t blockno) {
+    if (bc.valid && bc.blockno == blockno)
+        return;
+
+    uint64_t offset = blockno * BSIZE;
+
+    for (int i = 0; i < BSIZE; i++) {
+        bc.data[i] = dev.disk_data[offset + i];
+    }
+
+    bc.blockno = blockno;
+    bc.valid = 1;
 }
 
 
@@ -130,7 +147,7 @@ static void complete_request(uint16_t desc_idx, uint8_t status) {
 
 
 static void complete_disk_operation(struct disk_operation *op) {
-    //printf("[VIRTIO] Completing operation for desc %u\n", op->head_desc_idx);
+   // printf("[VIRTIO] Completing operation for desc %u\n", op->head_desc_idx);
     
     // 1. 遍历描述符链，处理数据
     uint16_t desc_idx = op->head_desc_idx;
@@ -141,7 +158,7 @@ static void complete_disk_operation(struct disk_operation *op) {
                                                 //(16= 8 字节 addr、4 字节 len、2 字节 flags、2 字节 next)
         uint64_t f_addr = phys_read(desc_base + 0, 8);   
         uint64_t addr = get_pa(&cpu[0],f_addr,ACC_LOAD);
-     //   printf("[desc %u] faddr: 0x%16lx,pa:0x%16lx\n", desc_idx, f_addr,  addr); 
+        //printf("[desc %u] faddr: 0x%16lx,pa:0x%16lx\n", desc_idx, f_addr,  addr); 
         uint32_t len = phys_read(desc_base + 8, 4);
         uint16_t flags = phys_read(desc_base + 12, 2);
         uint16_t next = phys_read(desc_base + 14, 2);
@@ -168,46 +185,48 @@ static void complete_disk_operation(struct disk_operation *op) {
     if (req_addr && data_addr) {
         uint32_t type = phys_read(req_addr, 4);
         uint64_t sector = phys_read(req_addr + 8, 8);
-        uint64_t offset = sector * 512;
-      //  printf("[virtio req] type=%d sector=%lx\n", type, sector);
-     //   printf("[virtio req] sector=%lu offset=%lu\n", sector, offset);
-     
-        for (int i = 0; i < 16; i++) {
-        //    printf("%02x ", bus_read(&cpu[0].bus, req_addr + i, 1));
-        }
-      //  printf("\n");
-        
-        if (type == VIRTIO_BLK_T_IN) {
-            for (int i = 0; i < 64; i++) {
-           // printf("[block 37]%02x \n", dev.disk_data[37*512 + i]);
-        }
-        //printf("disk_data[%d]=%x\n", offset, dev.disk_data[offset]);
+        uint64_t blockno = sector/2;
+        uint64_t sector_in_block = sector % 2 ; 
 
+        uint64_t disk_offset = sector * 512;
+        uint64_t buf_offset  = sector_in_block * 512;
 
-            // 读操作：磁盘 -> 内存
-          //  memcpy(memory + (data_addr - MEMORY_BASE), dev.disk_data + offset, 512);
-            for (int i = 0; i < 512; i++) {
-                if(dev.disk_data[offset + i] != 0){
-                   // printf("[disk_data :%d] %02x\n", offset + i, dev.disk_data[offset + i]);
-                }
+        if (type == VIRTIO_BLK_T_IN) {  
+    
+
+           // printf("sector=%lu to addr:0x%lx\n", sector, data_addr);
+            //printf("disk_data[%d]=%x\n", offset, dev.disk_data[offset]);
+
+                // 读操作：磁盘 -> 内存
+               
+            load_block(blockno);
+            //printf("[CACHE] load block %ld\n", blockno);
+            //  写回 512B（但来自完整block）
+            for (int i = 0; i < 1024; i++) {
                 bus_write(&cpu[0].bus,
-                        data_addr + i,
-                        dev.disk_data[offset + i],
+                        data_addr +i,
+                        bc.data[buf_offset + i],
                         1);
             }
-            for(int i = 0; i < 512; i++) {
-                uint8_t byte = bus_read(&cpu[0].bus, data_addr + i, 1);
-                if(byte != 0){
-                  //  printf("[memory write back :%08lx] %02x\n", data_addr + i, byte);
-                }
-                
-            }
         
-
 
         } else if (type == VIRTIO_BLK_T_OUT) {
             // 写操作：内存 -> 磁盘
-            memcpy(dev.disk_data + offset, memory + (data_addr - MEMORY_BASE), 512);
+            load_block(blockno);
+
+            //  写入 cache
+            for (int i = 0; i < 1024; i++) {
+                uint8_t val = bus_read(&cpu[0].bus,
+                                    data_addr + i,
+                                    1);
+
+                bc.data[buf_offset + i] = val;
+            }
+
+            uint64_t disk_offset = blockno * BSIZE;
+            for (int i = 0; i < BSIZE; i++) {
+                dev.disk_data[disk_offset + i] = bc.data[i];
+            }
         }
       //  printf("[virtio] sector=%ld data_addr=0x%lx\n", sector, data_addr);
     }

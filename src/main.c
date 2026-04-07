@@ -117,6 +117,8 @@ int main() {
                         clint_write,
                         &cpu->clint);
     
+    static uint64_t last__v = 0;
+
     for(int i = 0; i< 1;i++){
         cpu[i].bus = bus;
         
@@ -129,7 +131,6 @@ int main() {
      
         cpu[i].pc = entry_addr;
         printf("pc[%d]:0x%08lx\n",i,cpu[i].pc);
-        static uint64_t old = 0;
         if(cpu[i].halted != true){     
             
             //415421550
@@ -168,20 +169,39 @@ int main() {
             //422043084 kexec return -1
            //422145303
            //422163752    - 18450
-            for( ;j <= 423254775; j++) {
+           //423254947 forkret ret
+           //423206143  0x8000487a  
+           //423254850
+           // 422381149 80000d20
+           // 422887871 0x390
+           //422383686  0x87f4f200 store 0
+            for( ;j <= 422887891; j++) {
            
                 cpu_step(&cpu[i],memory);
                 clint_tick(&cpu->clint, 10);
                 cpu[i].cycle_count++;
                 cpu->csr[CSR_TIME] += 10;
-              
+                uint64_t v = bus_read(&cpu->bus,0x8001a397,1);
+                 if(v != last__v){
+                    
+                    printf("v:0x%08lx last_v:0x%08lx,j:%d pc:0x%08lx\n",v,last__v,j,cpu[0].pc);
+                    last__v = v;
+                 }
+                
                 if(cpu[0].halted == true){
-                    //printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
-                   // break;  
+                    printf("halted j:%d pc:0x%08lx\n",j,cpu[0].pc);
+                    break;  
                 }
-                if(cpu[0].pc == 0x8000488a && j > 422959815){ 
-                   //printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
-                    //break;
+
+        
+                if(cpu[0].pc == 0x80000bba && j > 422301011){
+                    log_enable = 0;     
+
+                   // uint64_t val = bus_read(&bus,0x8001a397,1);
+
+                    //printf("0x8001a397:0x%08lx ,j:%d pc:0x%08lx\n",val,j,cpu[0].pc);
+                }else{
+                    log_enable = 0;
                 }
     
                 if(cpu[0].gpr[0] != 0){
@@ -189,8 +209,9 @@ int main() {
                     break;
                 }
                 
-           
-                if(cpu[0].csr[CSR_TIME] >= 4232547000){
+            
+              
+                if(cpu[0].csr[CSR_TIME] >= 4228878000){
                     if(cpu[0].pc >= 0x800018ac && cpu[0].pc <= 0x800018dc){
                         log_enable = 0;
                     }else if(cpu[0].pc >= 0x80000bc4 && cpu[0].pc <= 0x80000c06){
@@ -251,10 +272,19 @@ int main() {
         uint32_t val1 = 0;
         uint32_t val2 = 0;
 
-        val1 = bus_read(&bus,0x8000f880,8);
+        val1 = bus_read(&bus,0x8001a397,1);
         val2 = bus_read(&bus,0x87fff000,8);
-        printf("[0x8000f880] :0x%lx\n",val1);
+        printf("[0x8001a397] :0x%lx\n",val1);
         printf("[0x87fff000] :0x%lx\n",val2);    
+
+        uint64_t pa = 0x8001a000; // VA 0 的物理地址
+        for(int i=0; i<0x400; i+=16) {
+            uint64_t val = bus_read(&bus, pa + i, 8);
+            printf("0x%08lx: 0x%016lx\n", pa + i, val);
+        }
+
+        uint64_t vll = bus_read(&bus,0x8001a390,16);
+        printf("[0x8001a390] :0x%016llx\n",vll);
     }
     
     // 设置自旋锁地址为 1

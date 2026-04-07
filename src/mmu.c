@@ -97,10 +97,6 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
     uint64_t satp_ppn = cpu->satp & (( 1ULL << 44 ) - 1 );
     uint64_t table_addr = (satp_ppn << 12);
 
-    if(va == 0x3fffffdff8){
-        printf("satp:0x%16lx,table_addr:0x%16lx\n",cpu->satp,table_addr);
-    }
-    
     int i = SV39_LEVELS - 1;
 
     while(1){
@@ -228,7 +224,6 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
         }
       //  printf("[pa] 0x%16lx\n",pa);
         if (!phys_ok(cpu, pa, 1)) {
-            if(va == 0xffffffff80020a50) printf("111pa:0x%16lx\n",pa);   
             return MMU_FAULT_ACCESS;
         }
         *out_pa = pa;
@@ -743,10 +738,6 @@ uint64_t get_pa(CPU_State *cpu,uint64_t vaddr,int acc_type){
     uint64_t satp = cpu->csr[CSR_SATP];
     uint8_t flags = 0;
 
-    if(vaddr == 0x3fffffdff8)
-    {
-        printf("vaddr:0x%16lx,satp:0x%16lx\n",vaddr,satp);
-    }
     if (((satp >> 60) & 0xF) != 0){
         int result = tlb_lookup(cpu,vaddr,acc_type,&pa,cpu->asid);
         if(result != MMU_OK){

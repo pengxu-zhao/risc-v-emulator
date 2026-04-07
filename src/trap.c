@@ -106,8 +106,8 @@ static void take_mmode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
 
 /* cause: 低位为异常/中断编号； is_interrupt: true 表示中断(need set mcause MSB) */
 void take_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
-
-    if(should_delegate_to_smode(cpu,cause))
+    
+    if(cpu->privilege <= 1)
         take_smode_trap(cpu,cause,is_interrupt);
     else
         take_mmode_trap(cpu,cause,is_interrupt);
@@ -188,7 +188,6 @@ void check_and_handle_interrupts(CPU_State *cpu){
         if(current_privilege == 1){
             if(!(cpu->csr[CSR_SSTATUS] & SSTATUS_SIE))   return;
         }
-
         if (sip_seip && (sie & SIE_SEIE)){  
             cause = IRQ_S_EXT;
         }else if(sip_stip && (sie & SIE_STIE)){

@@ -51,6 +51,15 @@ struct disk_operation {
 LIST_HEAD(disk_op_list, disk_operation);
 
 
+#define BSIZE 1024
+
+typedef struct {
+    uint64_t blockno;
+    uint8_t data[BSIZE];
+    int valid;
+} BlockCache;
+
+
 void virtio_blk_init(const char *disk_image_path);
 uint32_t virtio_mmio_read(void *opaque,uint64_t offset,uint8_t size);
 void virtio_mmio_write(void *opaque,uint64_t offset, uint64_t value,uint8_t size) ;

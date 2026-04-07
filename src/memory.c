@@ -58,7 +58,12 @@ uint64_t memory_read(uint8_t* memory, uint64_t address, size_t size) {
     //memcpy(&value, memory + phys_addr, size);
      for (int i = 0; i < size; i++) {
         value |=  ((uint64_t)memory[offset+i] & 0xFF ) << (i * 8);  // 小端序
+        if(address == 0x87f4f390 || address == 0x87f4f016){
+            printf("memory[0x%08x]:0x%02x\n", address + i, memory[offset+i]);
+        }
     }
+
+ 
 
     return value;
 }
@@ -148,7 +153,9 @@ void ram_write(void *opaque, uint64_t offset, uint64_t value, unsigned size) {
         printf("[RAM] write out of range: offset=0x%lx size=%u\n", offset, size);
         return;
     }
-
+    if(offset == 0x1a397){
+        printf("[RAM write 0x1a397] value:0x%08lx,j:%ld,pc:0x%08lx\n",value,j,cpu[0].pc);
+    }
     for(int i = 0; i < size; i++ ){
         uint8_t val =  (value >> 8*i) & 0xFF;
         ram->data[offset+i] = val;

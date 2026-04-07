@@ -10,7 +10,7 @@
 
 extern uint8_t* memory;
 extern int log_enable;
-
+extern int j;
 
 static inline print_all_gpr(CPU_State* cpu){
     fprintf(stderr,"x0~x31 value=========================\n");
@@ -324,6 +324,10 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
             }else if(funct2_56 == 0b00){ //c.sub
                 cpu->gpr[rd] -= cpu->gpr[rs2];
                 cpu->pc += 2;
+                if(log_enable){
+                    fprintf(stderr,"[c.sub] x[rd:%d]:0x%08lx,x[rs2:%d]:0x%08lx\n",rd,
+                        cpu->gpr[rd],rs2,cpu->gpr[rs2]);
+                }
             }else if(funct2_56 == 0b01){ //c.addw
             if(log_enable){
                     fprintf(stderr,"[before c.addw] x[%d]:0x%16lx , x[%d]:0x%16lx\n",
@@ -504,13 +508,20 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
                 fprintf(stderr,"[c.jr c.ret] pc = x[%d]:0x%16lx\n",rs1,cpu->gpr[rs1]);
                 }
             }else{ //c.jalr   
+
+                if(log_enable){
+                    fprintf(stderr,"[before c.jalr or c.ret] x[15] = 0x%16lx\n",
+                        cpu->gpr[rs1]);
+                }
+
                 cpu->gpr[0x1] = cpu->pc+2;
                 if(rs1 != 0){
-                    cpu->pc = cpu->gpr[rs1] & ~1ULL; // 将最低位置0
+                    cpu->pc = (cpu->gpr[rs1] & ~1ULL); // 将最低位置0
                 }
                 if(log_enable){
-                fprintf(stderr,"[c.jarl or c.ret] x[0x1]:0x%16lx,pc = x[%d]:0x%16lx\n",
-                        cpu->gpr[0x1],rs1,cpu->gpr[rs1]);
+                    printf("x[rs1:%d]:0x%16lx\n",rs1,cpu->gpr[rs1]);
+                fprintf(stderr,"[c.jalr or c.ret] x[0x1]:0x%16lx,pc = 0x%16lx\n",
+                        cpu->gpr[0x1],cpu->pc);
                 } 
 
             }
@@ -1026,6 +1037,12 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
     uint8_t funct3 = (instructions >> 12) & 0x7 ;
 
     uint64_t pa = get_pa(cpu,addr,ACC_STORE);
+    
+    if(addr >= 0x3fffffc000 && addr <= 0x3ffffff000){
+       // printf("occur store to 0x%08lx,value:0x%16lx,j:%ld\n",addr,value,j);
+       // cpu->halted = true;
+    }
+
 
     switch (funct3)
     {
@@ -1033,7 +1050,7 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
     {
         cpu_store8_pa(cpu, pa, (uint8_t)(value & 0xFF));
         if(log_enable){
-        fprintf(stderr,"[Sb load 1 byte] x[%d]:0x%16lx + imm:0x%16lx = pa:0x%16lx,value = x[%d]:0x%16lx\n",
+        fprintf(stderr,"[Sb store 1 byte] x[%d]:0x%16lx + imm:0x%16lx = pa:0x%16lx,value = x[%d]:0x%16lx\n",
                rs1,cpu->gpr[rs1],imm,pa,rs2,cpu->gpr[rs2] );
         }
         break;
@@ -1047,6 +1064,10 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
         break;
     case 0x2://SW
         cpu_store32_pa(cpu, pa, value & 0xFFFFFFFF);
+        if(pa == 0x8001a394){
+            printf("occur sw to 0x%08lx,value:0x%16lx\n",pa,value);
+        }
+
         if(log_enable){
             fprintf(stderr,"[exec_sw] pa:0x%08x,value:0x%08x,x[%d]:0x%16lx\n",pa,value,rs2,cpu->gpr[rs2]);
         }
@@ -1087,7 +1108,7 @@ void exec_ecall(CPU_State* cpu, uint32_t instruction) {
                     cpu->privilege == 1 ? EXC_ECALL_S : EXC_ECALL_M);
     /* 简单模式：在 emulator 中直接处理 syscall（host 接管），或把异常交给 guest */
     
- 
+    printf("[ECALL] from privilege level %d, cause: %d\n", cpu->privilege, cause);
     take_trap(cpu, cause, false);
    // fprintf(stderr,"exec_ecall cpu->pc:0x%08x\n",cpu->pc);
    // fprintf(stderr,"after take trap:%u\n",cpu->csr[CSR_MCAUSE]);

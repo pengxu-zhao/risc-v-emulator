@@ -1,5 +1,6 @@
 
 #include "bus.h"
+#include "cpu.h"
 
 extern uint8_t *memory;
 void bus_register_mmio(Bus *bus, uint64_t base, uint64_t size,
@@ -17,19 +18,22 @@ void bus_register_mmio(Bus *bus, uint64_t base, uint64_t size,
 }
 
 // bus.c
+extern CPU_State cpu[MAX_CORES];
+extern int j;
 uint64_t bus_read(Bus *bus, uint64_t addr, unsigned size) {
     for (int i = 0; i < bus->region_count; i++) {
         MMIORegion *r = &bus->regions[i];
         if (addr >= r->base && addr < r->base + r->size) {
             uint64_t offset = addr - r->base;
-           // printf("[bus_read] offset:0x%16lx,size:%d\n",offset,size);
+           
             return r->read(r->opaque, offset, size);
         }
     }
-
+    
     
     if(addr > MEMORY_BASE && addr + size - 1 < MEMORY_BASE + MEMORY_SIZE){
         uint64_t val = 0;
+        
         memcpy(&val, &memory[addr - MEMORY_BASE], size);
         return val; 
     }
@@ -42,12 +46,7 @@ extern int j;
 extern CPU_State cpu[MAX_CORES];
 
 void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
-        if(addr == 0x10001094 || addr == 0x100010a4){
-      //  printf("[bus_write -> virtio_mmio_write] offset:0x%08lx, value:0x%08lx, size: %d\n", addr, val, size);
-    }
-    
-
-
+        
     for (int i = 0; i < bus->region_count; i++) {
         MMIORegion *r = &bus->regions[i];
         if (addr >= r->base && addr < r->base + r->size) {
@@ -56,7 +55,6 @@ void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
             return;
         }
     }
-
 
     // 默认写内存
     if(addr >= MEMORY_BASE && addr + size - 1 < MEMORY_BASE + MEMORY_SIZE){
