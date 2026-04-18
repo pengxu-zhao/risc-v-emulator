@@ -204,6 +204,7 @@ void check_and_handle_interrupts(CPU_State *cpu){
         if(current_privilege == 1){
             if(!(cpu->csr[CSR_SSTATUS] & SSTATUS_SIE))   return;
         }
+
         if (sip_seip && (sie & SIE_SEIE)){  
             cause = IRQ_S_EXT;
         }else if(sip_stip && (sie & SIE_STIE)){

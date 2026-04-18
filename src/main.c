@@ -147,63 +147,6 @@ int main() {
             // 硬件在处理中断跳转到stvec前 特权级自动切换到对应的级别。  
             //发现问题所在是 sret指令的实现，应该是讲特权级切换到 status.xpp保存的特权级，而不是置为0
             
-<<<<<<< Updated upstream
-
-
-
-            //415421361 pc = 0x800053ce
-            //415283483 pc = 0x80003486  fsinit
-
-            //80001dbe jinru clint 5380
-
-            //brelse -> releasesleep  chufa clint
-
-            //415421382
-
-            //415389550
-            //[c.sdsp] addr:0x      3fffffdf48,pa:0x87fb7f48,x[1]:0x        80000cc2
-            //c4e  x[2]:0x      3fffffdf40
-            //c7c  x[2]:0x      3fffffdd40 
-            // 422351780   forkret panic
-            //422248695
-            //421315535  namei return 0
-            //422043084 kexec return -1
-           //422145303
-           //422163752    - 18450
-           //423254947 forkret ret
-           //423206143  0x8000487a  
-           //423254850
-           // 422381149 80000d20
-           // 422887871 0x390
-           //422383686  0x87f4f200 store 0
-            for( ;j <= 422887891; j++) {
-           
-                cpu_step(&cpu[i],memory);
-                clint_tick(&cpu->clint, 10);
-                cpu[i].cycle_count++;
-                cpu->csr[CSR_TIME] += 10;
-                uint64_t v = bus_read(&cpu->bus,0x8001a397,1);
-                 if(v != last__v){
-                    
-                    printf("v:0x%08lx last_v:0x%08lx,j:%d pc:0x%08lx\n",v,last__v,j,cpu[0].pc);
-                    last__v = v;
-                 }
-                
-                if(cpu[0].halted == true){
-                    printf("halted j:%d pc:0x%08lx\n",j,cpu[0].pc);
-                    break;  
-                }
-
-        
-                if(cpu[0].pc == 0x80000bba && j > 422301011){
-                    log_enable = 0;     
-
-                   // uint64_t val = bus_read(&bus,0x8001a397,1);
-
-                    //printf("0x8001a397:0x%08lx ,j:%d pc:0x%08lx\n",val,j,cpu[0].pc);
-                }else{
-                    log_enable = 0;
-=======
             //429899252 ready to call wait()
             //431817210  0x74
             for( ;j <= 429901894; j++) //  0x74, 
@@ -275,50 +218,14 @@ int main() {
                 if(cpu[0].pc == 0x66){
                    // printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
                   //  break;
->>>>>>> Stashed changes
                 }
     
                 if(cpu[0].gpr[0] != 0){
                     printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
                     break;
                 }
-<<<<<<< Updated upstream
-                
-            
-              
-                if(cpu[0].csr[CSR_TIME] >= 4228878000){
-                    if(cpu[0].pc >= 0x800018ac && cpu[0].pc <= 0x800018dc){
-                        log_enable = 0;
-                    }else if(cpu[0].pc >= 0x80000bc4 && cpu[0].pc <= 0x80000c06){
-                        log_enable = 0;
-                    }else if(cpu[0].pc >= 0x80000c9c && cpu[0].pc <= 0x80000cd0){
-                        log_enable = 0;
-                    }else if(cpu[0].pc >= 0x80000c08 && cpu[0].pc <= 0x80000c48){
-                        log_enable = 0;
-                    }else if(cpu[0].pc >= 0x8000188c && cpu[0].pc <= 0x800018aa){
-                        log_enable = 0;
-                    }else if(cpu[0].pc >= 0x80000b98 && cpu[0].pc <= 0x80000bc2){
-                        log_enable = 0;
-                    }else if(cpu[0].pc >= 0x80000c4c && cpu[0].pc <= 0x80000c98){
-                        log_enable = 0;
-                    }else if(cpu[0].pc >= 0x80001830 && cpu[0].pc <= 0x8000184a){
-                        log_enable = 0;
-                    }else if(cpu[0].pc >= 0x80000b6c && cpu[0].pc <= 0x80000baa){
-                        log_enable = 0;
-                    }else if(cpu[0].pc >= 0x80000b42 && cpu[0].pc <= 0x80000b68){
-                        log_enable = 0;     
-                    }else if(cpu[0].pc >= 0x8000187c && cpu[0].pc <= 0x80001896){
-                        log_enable = 0;
-                    }
-                    else{
-                        log_enable = 1;
-                    }
-                } 
-
-=======
             
      
->>>>>>> Stashed changes
                 virtio_disk_update(&cpu[i].cycle_count);
 
                 check_and_handle_interrupts(&cpu[i]);
@@ -351,12 +258,6 @@ int main() {
         uint32_t val1 = 0;
         uint32_t val2 = 0;
 
-<<<<<<< Updated upstream
-        val1 = bus_read(&bus,0x8001a397,1);
-        val2 = bus_read(&bus,0x87fff000,8);
-        printf("[0x8001a397] :0x%lx\n",val1);
-        printf("[0x87fff000] :0x%lx\n",val2);    
-=======
         val1 = bus_read(&bus,0x87f55028,8);
         val2 = bus_read(&bus,0x87f56028,8);
         printf("[0x87f55028] :0x%lx\n",val1);
@@ -365,24 +266,15 @@ int main() {
         uint64_t pa1 = get_pa(&cpu[0],0x3ffffff000,ACC_LOAD);
         uint32_t pa2 = get_pa(&cpu[0],0x3fffffe000,ACC_LOAD);
         printf("pa1:0x%08lx,pa2:0x%08lx\n",pa1,pa2);
->>>>>>> Stashed changes
 
         uint64_t pa = 0x8001a000; // VA 0 的物理地址
         for(int i=0; i<0x400; i+=16) {
             uint64_t val = bus_read(&bus, pa + i, 8);
-<<<<<<< Updated upstream
-            printf("0x%08lx: 0x%016lx\n", pa + i, val);
-        }
-
-        uint64_t vll = bus_read(&bus,0x8001a390,16);
-        printf("[0x8001a390] :0x%016llx\n",vll);
-=======
            // printf("0x%08lx: 0x%016lx\n", pa + i, val);
         }
 
         
 
->>>>>>> Stashed changes
     }
     
     // 设置自旋锁地址为 1

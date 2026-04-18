@@ -1040,12 +1040,6 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
     uint8_t funct3 = (instructions >> 12) & 0x7 ;
 
     uint64_t pa = get_pa(cpu,addr,ACC_STORE);
-    
-    if(addr >= 0x3fffffc000 && addr <= 0x3ffffff000){
-       // printf("occur store to 0x%08lx,value:0x%16lx,j:%ld\n",addr,value,j);
-       // cpu->halted = true;
-    }
-
 
     if(addr >= 0x3fffffc000 && addr <= 0x3ffffff000){
        // printf("occur store to 0x%08lx,value:0x%16lx,j:%ld\n",addr,value,j);
@@ -1117,11 +1111,7 @@ void exec_ecall(CPU_State* cpu, uint32_t instruction) {
                     cpu->privilege == 1 ? EXC_ECALL_S : EXC_ECALL_M);
     /* 简单模式：在 emulator 中直接处理 syscall（host 接管），或把异常交给 guest */
     
-<<<<<<< Updated upstream
-    printf("[ECALL] from privilege level %d, cause: %d\n", cpu->privilege, cause);
-=======
     //printf("[ECALL] from privilege level %d, cause: %d\n", cpu->privilege, cause);
->>>>>>> Stashed changes
     take_trap(cpu, cause, false);
    // fprintf(stderr,"exec_ecall cpu->pc:0x%08x\n",cpu->pc);
    // fprintf(stderr,"after take trap:%u\n",cpu->csr[CSR_MCAUSE]);

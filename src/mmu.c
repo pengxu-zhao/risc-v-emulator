@@ -116,11 +116,7 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
 
     uint64_t satp_ppn = cpu->satp & (( 1ULL << 44 ) - 1 );
     uint64_t table_addr = (satp_ppn << 12);
-<<<<<<< Updated upstream
-
-=======
     
->>>>>>> Stashed changes
     int i = SV39_LEVELS - 1;
 
     while(1){
@@ -249,13 +245,8 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
             default:            break;
         }
       //  printf("[pa] 0x%16lx\n",pa);
-<<<<<<< Updated upstream
-        if (!phys_ok(cpu, pa, 1)) {
-            return MMU_FAULT_ACCESS;
-=======
         if (!phys_ok(cpu, pa, 1)) {  
             return MMU_FAULT_PAGE;
->>>>>>> Stashed changes
         }
         *out_pa = pa;
         uint8_t pte_flag = pte & ((1 << 7) - 1);
@@ -541,25 +532,12 @@ uint64_t get_pa(CPU_State *cpu,uint64_t vaddr,int acc_type){
     uint64_t satp = cpu->csr[CSR_SATP];
     uint8_t flags = 0;
 
-<<<<<<< Updated upstream
-    if (((satp >> 60) & 0xF) != 0){
-        int result = tlb_lookup(cpu,vaddr,acc_type,&pa,cpu->asid);
-        if(result != MMU_OK){
-            result = sv39_translate(cpu,vaddr,acc_type,&pa,&flags);
-            if(result == MMU_FAULT_ACCESS){
-                //handle_page_fault(cpu,va,ACC_FETCH);
-                return 0;
-            }
-        }
-           
-=======
     if (((satp >> 60) & 0xF) == 0){
         return vaddr;
     }
     int result = tlb_lookup(cpu,vaddr,acc_type,&pa,cpu->asid);
 
     if(result == TLB_OK){
->>>>>>> Stashed changes
         return pa;
     }
 
