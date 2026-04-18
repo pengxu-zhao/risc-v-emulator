@@ -128,6 +128,14 @@ typedef struct {
 
     CLINT clint;
 
+    struct{
+        uint8_t valid;
+        uint8_t acc_type;
+        uint8_t cause;
+        uint64_t vaddr;
+    }mem_fault;
+
+
 } CPU_State;
 
 // 函数声明

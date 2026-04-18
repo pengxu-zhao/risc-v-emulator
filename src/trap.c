@@ -4,6 +4,7 @@
 #define DIRECT 0U
 #define VECTORED 1U
 extern int log_enable;
+extern int j;
 
 static bool should_delegate_to_smode(CPU_State *cpu,uint64_t cause){
 
@@ -140,6 +141,20 @@ void check_and_handle_interrupts(CPU_State *cpu){
     uint64_t sstatus = cpu->csr[CSR_SSTATUS];
     uint64_t mstatus = cpu->csr[CSR_MSTATUS];
 
+    /*
+        mstatus.MIE   （总开关）
+              │
+              ▼
+        mie（允许哪些中断）
+              │
+              ▼
+        mip（哪些中断来了）
+              │
+              ▼
+        是否进入 trap
+    
+    */
+
 
     if(current_privilege == 3){ //M mode
         if (cpu->csr[CSR_MSTATUS] & MSTATUS_MIE){ 
@@ -182,7 +197,8 @@ void check_and_handle_interrupts(CPU_State *cpu){
     }else if(current_privilege <= 1){
 
         uint64_t sip_seip = (mip & MIP_MEIP) && (mideleg & (1 << 9)) ? SIP_SEIP:0;
-        uint64_t sip_stip = (mip & MIP_MTIP) && (mideleg & (1 << 5)) ? SIP_STIP:0;
+        //uint64_t sip_stip = (mip & MIP_MTIP) && (mideleg & (1 << 5)) ? SIP_STIP:0;
+        uint64_t sip_stip = (mip & MIP_STIP) ? SIP_STIP:0; // sstc expanded timer support
         uint64_t sip_ssip = (mip & MIP_MSIP) && (mideleg & (1 << 1)) ? SIP_SSIP:0;
         
         if(current_privilege == 1){
@@ -219,9 +235,16 @@ void check_and_handle_interrupts(CPU_State *cpu){
             break;
     }
 
-    if(log_enable && take_interrupt){
+    if(take_interrupt){
+    //    cpu[0].halted = true;
+    }
+
+    if( take_interrupt && j == 423253676){
+        printf("[cause Check] cause=%lu, j:%d,pc:0x%08lx\n", cause, j,cpu[0].pc);
+
         printf("[Interrupt Check] privilege=%d, mip=0x%016lx, mie=0x%016lx, sie=0x%016lx, mideleg=0x%016lx, sstatus=0x%016lx, mstatus=0x%016lx, take_interrupt=%d, cause=%lu\n",
                current_privilege, mip, mie, sie, mideleg, sstatus, mstatus, take_interrupt, cause);
+        printf("[Interrupt Check] to_s_mode=%d\n", to_s_mode);
     }
   
     if(take_interrupt){

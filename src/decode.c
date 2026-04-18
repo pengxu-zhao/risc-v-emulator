@@ -6,6 +6,9 @@
 #include "cpu.h"
 #include "memory.h"
 #include "mmu.h"
+
+extern int log_enable;
+
 // 指令解码表
 
 instruction_handler_t opcode_table[255] = {0};
@@ -185,12 +188,16 @@ uint32_t fetch_instruction(CPU_State* cpu, uint8_t* memory) {
     uint64_t va = cpu->pc;
 
     pa = get_pa(cpu,va,ACC_FETCH);
+<<<<<<< Updated upstream
     if(cpu->pc >= 0x3ffffff000){
         printf("pa:0x%16lx\n",pa);
     }
     if(cpu->pc <= 0x400){
         printf("user program pa:0x%16lx\n",pa);
     }
+=======
+  
+>>>>>>> Stashed changes
     
     uint16_t instr = memory_read(cpu->mem,pa,2) & 0xFFFF;
 

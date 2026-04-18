@@ -6,7 +6,6 @@
 
 
 int sv39_translate(CPU_State *cpu, uint64_t va, int acc_type, uint64_t *out_pa,uint8_t* flags);
-int sv32_translate(CPU_State *cpu, uint64_t va, int acc_type, uint64_t *out_pa,uint8_t* flags);
 int tlb_lookup(CPU_State *cpu, uint64_t va, int acc,uint64_t *pa,uint16_t asid);
 void handle_page_fault(CPU_State *cpu, uint64_t va, int acc);
 void map_vaddr_to_paddr(CPU_State* cpu,uint64_t vaddr,uint64_t paddr,uint64_t size,uint8_t flags,uint16_t asid);

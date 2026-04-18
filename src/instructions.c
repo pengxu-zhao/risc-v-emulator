@@ -65,14 +65,14 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
                             ((instr >> 5) & 0x1) << 6;
         
             uint64_t addr = cpu->gpr[rs1] + imm8;
-            uint64_t val = 0;
+            
             uint64_t pa = get_pa(cpu,addr,ACC_LOAD);
             if(rd != 0){
-                val = bus_read(&cpu->bus,pa,4);
-                cpu->gpr[rd] = val;
+                 
+                cpu->gpr[rd] = (int64_t)(int32_t)bus_read(&cpu->bus,pa,4);
             }
             if(log_enable){
-                fprintf(stderr,"[c.lw] x[%d]:0x%08lx,addr:0x%16lx, pa:0x%08lx\n",rd,val,addr,pa);
+                fprintf(stderr,"[c.lw] x[%d]:0x%08lx,addr:0x%16lx, pa:0x%08lx\n",rd,cpu->gpr[rd],addr,pa);
             }
             cpu->pc += 2;
             break;
@@ -107,6 +107,7 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
         bus_write(&cpu->bus,pa,cpu->gpr[rs2],8);
         cpu->pc += 2;
         if(log_enable){
+        fprintf(stderr,"[c.sd ] vaddr:0x%16lx,pa:0x%16lx\n",addr,pa);
         fprintf(stderr,"[c.sd] x[%d]:0x%16lx,pa:0x%16lx,x[%d]:0x%16lx\n",
             rs1,cpu->gpr[rs1],pa,rs2,cpu->gpr[rs2]);
         }
@@ -358,7 +359,7 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
             int64_t imm = (int64_t)(((int32_t)imm11 << 20) >> 20);
             cpu->pc += imm;
             if(log_enable){
-            fprintf(stderr,"[c.j] imm:0x%16lx\n");
+            fprintf(stderr,"[c.j] imm:0x%16lx\n",imm);
             }
             break;
         }
@@ -770,7 +771,7 @@ void exec_xori(CPU_State* cpu,uint32_t instr){
         printf("[xori] x[rd:%d]:0x%16lx,x[rs1:%d]:0x%16lx,imm:0x%16lx\n",
                 rd,cpu->gpr[rd],rs1,cpu->gpr[rs1,imm]);
     }
-
+    cpu->pc += 4;
 }
 
 void exec_sub(CPU_State* cpu, uint32_t instruction){
@@ -865,13 +866,15 @@ void exec_blt(CPU_State* cpu,uint32_t instr){
     uint8_t rs2 = (instr >> 20) & 0x1F;
 
     uint32_t imm12 = (instr >> 31) << 12 |
-                ((instr >> 24) & 0x3F) << 5 |
+                ((instr >> 25) & 0x3F) << 5 |
                 ((instr >> 8 ) & 0xF) << 1 |
                 ((instr >> 7) & 0x1) << 11;
     int64_t imm = (int64_t)( ((int32_t)imm12 << 20) >> 20);
     cpu->pc = ((int64_t)cpu->gpr[rs1] < (int64_t)cpu->gpr[rs2]) ? cpu->pc+imm:cpu->pc+4;
     if(log_enable){
     fprintf(stderr,"[blt] x[%d]:0x%16lx < x[%d]:0x%16lx\n",rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
+    printf("[blt] imm12:0x%08x,imm:0x%16lx\n",imm12,imm);
+    printf("[blt < jmp] pc:0x%16lx\n",cpu->pc);
     }
 
 }
@@ -1044,6 +1047,12 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
     }
 
 
+    if(addr >= 0x3fffffc000 && addr <= 0x3ffffff000){
+       // printf("occur store to 0x%08lx,value:0x%16lx,j:%ld\n",addr,value,j);
+       // cpu->halted = true;
+    }
+
+
     switch (funct3)
     {
     case 0x0: //SB
@@ -1108,7 +1117,11 @@ void exec_ecall(CPU_State* cpu, uint32_t instruction) {
                     cpu->privilege == 1 ? EXC_ECALL_S : EXC_ECALL_M);
     /* 简单模式：在 emulator 中直接处理 syscall（host 接管），或把异常交给 guest */
     
+<<<<<<< Updated upstream
     printf("[ECALL] from privilege level %d, cause: %d\n", cpu->privilege, cause);
+=======
+    //printf("[ECALL] from privilege level %d, cause: %d\n", cpu->privilege, cause);
+>>>>>>> Stashed changes
     take_trap(cpu, cause, false);
    // fprintf(stderr,"exec_ecall cpu->pc:0x%08x\n",cpu->pc);
    // fprintf(stderr,"after take trap:%u\n",cpu->csr[CSR_MCAUSE]);
@@ -1194,15 +1207,17 @@ void exec_sfencevma(CPU_State* cpu,uint32_t instruction){
         for(int i = 0; i < TLB_SIZE; i++){
             cpu->cpu_tlb.iTLB.entries[i].valid = false;
             cpu->cpu_tlb.dTLB.entries[i].valid = false;
+            cpu->tlb.entries[i].valid = false;
         }
-        fprintf(stderr,"[sfence] flush all TLB\n");
+       // fprintf(stderr,"[sfence] flush all TLB\n");
     } else {
         // 其他情况暂不实现或简单 flush all
         for(int i = 0; i < TLB_SIZE; i++){
             cpu->cpu_tlb.iTLB.entries[i].valid = false;
             cpu->cpu_tlb.dTLB.entries[i].valid = false;
+            cpu->tlb.entries[i].valid = false;
         }
-        fprintf(stderr,"[sfence] unimplemented case, flush all anyway\n");
+       //fprintf(stderr,"[sfence] unimplemented case, flush all anyway\n");
     }
     cpu->pc += 4;
    
@@ -1686,6 +1701,7 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
             {   
                 if(cpu->gpr[rs1] % 4 != 0){
                     fprintf(stderr,"addr error\n");
+                    cpu->halted = true;
                     return;
                 }
                 uint32_t tmp = bus_read(&cpu->bus,addr,4);
@@ -1870,7 +1886,7 @@ void exec_wfi(CPU_State* cpu,uint32_t instr){
             uint64_t mip_val = read_csr(cpu, CSR_MIP);
             mip_val |= MIP_MTIP;
             write_csr(cpu, CSR_MIP, mip_val);
-            fprintf(stderr,"[WFI]: Setting timer interrupt to avoid deadlock\n");
+           // fprintf(stderr,"[WFI]: Setting timer interrupt to avoid deadlock\n");
         } else {
             // 选项2：快进到下一个定时器中断
             uint64_t cycles_until_interrupt = cpu->mtimecmp - cpu->mtime;
@@ -1879,7 +1895,7 @@ void exec_wfi(CPU_State* cpu,uint32_t instr){
                 uint64_t mip_val = read_csr(cpu, CSR_MIP);
                 mip_val |= MIP_MTIP;
                 write_csr(cpu, CSR_MIP, mip_val);
-                fprintf(stderr,"[WFI]: Fast-forwarding to next timer interrupt\n");
+             //   fprintf(stderr,"[WFI]: Fast-forwarding to next timer interrupt\n");
             }
         }
         

@@ -72,7 +72,6 @@ int plic_is_enabled(int irq, int cpu_id) {
     
     // 检查使能位
     uint8_t ret = (plic.enable[cpu_id][word_index] >> bit_offset) & 1;
-   
     return ret;
 }
 
@@ -89,7 +88,7 @@ void plic_set_irq(int irq, int level) {
         plic.pending[pending_word] &= ~(1 << pending_bit);
     }
 
-    for (int cpu_id = 0; cpu_id < MAX_CORES; cpu_id++) {
+    for (int cpu_id = 0; cpu_id < 1; cpu_id++) {
         if (plic_is_enabled( irq, cpu_id)) {
             plic_update( cpu_id);
         }
@@ -175,7 +174,7 @@ void plic_update(int cpu_id) {
 
         //检查是否已被认领
         if (plic.claimed[cpu_id][word_index] & (1 << bit_offset)) {
-            printf("[PLIC] IRQ %d already claimed by CPU%d\n", irq, cpu_id);
+           // printf("[PLIC] IRQ %d already claimed by CPU%d\n", irq, cpu_id);
             continue;
         }
       
@@ -309,10 +308,10 @@ int plic_select_target_cpu_affinity(int irq) {
     
     // 简单实现：轮询选择
     static int next_cpu = 0;
-    for (int i = 0; i < MAX_CORES; i++) {
-        int cpu_id = (next_cpu + i) % MAX_CORES;
+    for (int i = 0; i < 1; i++) {
+        int cpu_id = (next_cpu + i) % 1;
         if (plic_is_enabled(irq, cpu_id)) {
-            next_cpu = (cpu_id + 1) % MAX_CORES;
+            next_cpu = (cpu_id + 1) % 1;
             return cpu_id;
         }
     }
@@ -359,7 +358,7 @@ void setup_critical_irq_affinity(void) {
 }
 
 int plic_is_irq_enabled_on_any(int irq) {
-    for (int cpu_id = 0; cpu_id < MAX_CORES; cpu_id++) {
+    for (int cpu_id = 0; cpu_id < 1; cpu_id++) {
         if (plic_is_enabled(irq, cpu_id)) {
             return 1;
         }

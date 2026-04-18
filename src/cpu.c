@@ -8,7 +8,7 @@ extern uint8_t* memory;
 extern Bus bus;
 extern int log_enable;
 extern PLICState plic;
-
+extern int j;
 CPU_State cpu[MAX_CORES];
 
 CPU_State* get_current_cpu(void) {
@@ -32,7 +32,7 @@ void cpu_init(CPU_State* cpu, uint8_t core_id) {
     cpu->mem = memory;
 
     cpu->use_relaxed_memory = 0;//use_relaxed;
-
+    cpu->privilege = 3; // M-mode
 
     clint_init(&cpu->clint);
     cpu->clint.timer_interrupt_callback = cpu_timer_interrupt_callback;
@@ -92,7 +92,12 @@ void cpu_step(CPU_State* cpu, uint8_t* memory) {
     }
     
     if(log_enable){
+<<<<<<< Updated upstream
         printf("Fetching instruction from PC: 0x%016lx\n", cpu->pc);
+=======
+        printf("Fetching instruction from " GREEN "pc:" RESET RED "0x%08lx" 
+          RESET  "," GREEN"j:" RESET RED"%ld\n" RESET, cpu->pc,j);
+>>>>>>> Stashed changes
     }
 
     // 取指

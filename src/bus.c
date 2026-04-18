@@ -46,7 +46,18 @@ extern int j;
 extern CPU_State cpu[MAX_CORES];
 
 void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
+<<<<<<< Updated upstream
         
+=======
+        if(addr == 0x87f56000 && val == 0x8000000000087fff){
+     //  printf("[bus_write -> sp] offset:0x%08lx, value:0x%08lx, size: %d\n", addr, val, size);
+      //  printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
+      //     cpu[0].halted = true;
+    }
+    
+
+
+>>>>>>> Stashed changes
     for (int i = 0; i < bus->region_count; i++) {
         MMIORegion *r = &bus->regions[i];
         if (addr >= r->base && addr < r->base + r->size) {

@@ -15,6 +15,12 @@
 #include <sys/types.h>
 #include <elf.h>
 
+#define RED   "\033[31m"
+#define GREEN "\033[32m"
+#define BLUE  "\033[34m"
+
+#define RESET "\033[0m"
+
 #define MAX_MMIO_REGIONS 8
 
 #define NUM_GPR 32
@@ -45,6 +51,7 @@
 #define CSR_SSTATUS  0x100
 #define CSR_SIE      0x104 //supervisor 
 #define CSR_STVEC    0x105
+#define CSR_SSCRATCH 0x140 // S 模式下的临时寄存器，通常用于存储内核栈指针或其他上下文信息，在进入 S 模式陷阱处理程序时使用。
 #define CSR_SEPC     0x141
 #define CSR_SCAUSE   0x142
 #define CSR_STVAL    0X143
@@ -58,6 +65,7 @@
 #define CSR_MIE      0x304 //中断使能寄存器
 #define CSR_MTVEC    0x305 //陷阱向量基址寄存器
 #define CSR_MCOUNTERN 0x306 //机器计数器使能
+#define CSR_MENVCFG  0x30A // 配置机器模式下的环境相关特性
 #define CSR_MEPC     0x341
 #define CSR_MCAUSE   0x342
 #define CSR_MTVAL    0x343
@@ -90,7 +98,7 @@
 #define MIP_MSIP  (1u << 3)   /* Machine software interrupt pending */
 #define MIP_MTIP  (1u << 7)   /* Machine timer interrupt pending */
 #define MIP_MEIP  (1u << 11)  /* Machine external interrupt pending */
-#define MIP_STIE (1u << 5) // S mode timer interrupt enable
+#define MIP_STIP (1u << 5) // S mode timer interrupt enable
 
 #define MIE_MSIE  (1u << 3)
 #define MIE_MTIE (1UL << 7)
@@ -173,6 +181,11 @@ enum {
     ACC_LOAD = 1, //读
     ACC_STORE = 2 //写
 };
+typedef enum {
+    TLB_OK = 0,
+    TLB_MISS,
+    TLB_FAULT
+} TLBResult;
 
 enum {
     MMU_OK = 0,
@@ -180,6 +193,21 @@ enum {
     MMU_FAULT_ACCESS,  // access-fault (PMA/PMP) - emulator may treat same as page-fault
     MMU_FAULT_PASSTHRU // used internally
 };
+
+        
+typedef enum {
+    FAULT_NONE = 0,
+
+    FAULT_INST_PAGE,   // 12
+    FAULT_LOAD_PAGE,   // 13
+    FAULT_STORE_PAGE,  // 15
+
+} FaultType;
+typedef struct {
+    int src;        // TLB_FAULT / MMU_FAULT_PAGE / MMU_FAULT_ACCESS
+    int acc_type;   // FETCH / LOAD / STORE
+    uint64_t va;
+} FaultCtx;
 
 #define PLIC_BASE 0x0c000000L
 #define PLIC_SIZE 0x4000000
@@ -265,7 +293,7 @@ enum {
 
 #define IRQ_BASE 11 // 像 UART、VirtIO、GPIO 等外设，它们属于 外部中断，
                     //统一通过 Machine External Interrupt = 11 进 CPU，然后再通过 PLIC 判断具体是哪个设备
-#define UART_IRQ_NUM 3 // uart0
+#define UART_IRQ_NUM 10 // uart  xv6 set 10
 
 #define LSR_DR    (1<<0)   // Data Ready
 #define LSR_OE    (1<<1)   // Overrun Error

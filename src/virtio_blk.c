@@ -187,10 +187,19 @@ static void complete_disk_operation(struct disk_operation *op) {
         uint64_t sector = phys_read(req_addr + 8, 8);
         uint64_t blockno = sector/2;
         uint64_t sector_in_block = sector % 2 ; 
+<<<<<<< Updated upstream
+=======
+
+        uint64_t disk_offset = sector * 512;
+        uint64_t buf_offset  = sector_in_block * 512;
+        
+        if (type == VIRTIO_BLK_T_IN) {
+>>>>>>> Stashed changes
 
         uint64_t disk_offset = sector * 512;
         uint64_t buf_offset  = sector_in_block * 512;
 
+<<<<<<< Updated upstream
         if (type == VIRTIO_BLK_T_IN) {  
     
 
@@ -198,6 +207,12 @@ static void complete_disk_operation(struct disk_operation *op) {
             //printf("disk_data[%d]=%x\n", offset, dev.disk_data[offset]);
 
                 // 读操作：磁盘 -> 内存
+=======
+           // printf("sector=%lu to addr:0x%lx\n", sector, data_addr);
+            //printf("disk_data[%d]=%x\n", offset, dev.disk_data[offset]);
+
+            // 读操作：磁盘 -> 内存
+>>>>>>> Stashed changes
                
             load_block(blockno);
             //printf("[CACHE] load block %ld\n", blockno);
@@ -208,7 +223,10 @@ static void complete_disk_operation(struct disk_operation *op) {
                         bc.data[buf_offset + i],
                         1);
             }
+<<<<<<< Updated upstream
         
+=======
+>>>>>>> Stashed changes
 
         } else if (type == VIRTIO_BLK_T_OUT) {
             // 写操作：内存 -> 磁盘

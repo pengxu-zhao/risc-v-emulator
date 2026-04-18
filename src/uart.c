@@ -8,7 +8,7 @@
 #include "cpu.h"
 #include <ctype.h>
 extern int log_enable;
-
+extern CPU_State cpu[MAX_CORES];
 static void uart_update_lsr(UARTDevice *u) {
     u->lsr = 0;
     if (u->rx_count > 0) u->lsr |= LSR_DR;
@@ -86,6 +86,35 @@ void uart_update_irq_old(UARTDevice* uart) {
 
 }
 
+void uart_start_tx(UARTDevice *u, uint8_t ch)
+{
+    // 直接打印
+    putchar(ch);
+    fflush(stdout);
+
+    // 模拟“发送完成”
+    uart_tx_complete(u);
+}
+
+void uart_tx_complete(UARTDevice *u)
+{
+    // 标记发送完成
+    u->lsr |= LSR_TX_EMPTY;
+
+    // 触发 TX 中断（只触发一次！）
+    if (u->ier & IER_TX_ENABLE) {
+        u->irq_pending = 1;
+
+        if (u->plic) {
+           // printf("[UART] Triggering IRQ %d\n", u->irq_num);
+            plic_set_irq(u->irq_num, 1);
+        }
+
+        if (u->irq_cb) {
+            u->irq_cb(u->cpu_opaque, 1, u->irq_num);
+        }
+    }
+}
 
 /* ---------- utility (circular buffer) ---------- */
 static inline bool tx_buf_is_empty(UARTDevice *u) { return u->tx_count == 0; }
@@ -401,6 +430,7 @@ void uart_mmio_write(UARTDevice *u, uint64_t offset, uint32_t val, unsigned size
     // normalize val to 32-bit
     uint32_t v = val;
     bool dlab = (u->lcr & 0x80) != 0;
+   // printf("[uart] pc:0x%08lx,offset:0x%08lx,val:%d\n",cpu[0].pc,offset,val);
 
     // 对 tx_buf_push 或 tx_buf_is_empty 显式加锁
     // TX 线程或其他线程并发访问 u->tx_buf
@@ -413,30 +443,21 @@ void uart_mmio_write(UARTDevice *u, uint64_t offset, uint32_t val, unsigned size
             }else{
                 uint8_t b = (uint8_t)(v & 0xFF);
                 char c = val & 0xFF;
-            
-                //fprintf(stderr, "[UART] THR: 0x%02x ", c);
-                /*if (c == '\n') fprintf(stderr, "\\n");
-                else if (c == '\r') fprintf(stderr, "\\r");
-                else if (isprint(c)) fprintf(stderr, "'%c'", c);
-                else fprintf(stderr, ".");
-                fprintf(stderr, "\n");
-                */
-                // 将字符推送到TX缓冲区（重要！）
+               // printf("val:%ld\n",val);
+
+                // 将字符推送到TX缓冲区
                 bool success = tx_buf_push(u, b);
                 if (!success) {
                     // 缓冲区满，可以设置溢出标志
                     u->lsr |= LSR_OE;
                 }
+                uint8_t ch = val & 0xFF;
+                u->thr = ch;
+                // 标记正在发送
+                u->lsr &= ~LSR_TX_EMPTY;
+                // 启动发送（关键）
+                uart_start_tx(u, ch);
 
-
-                bool tx_was_empty = tx_buf_is_empty(u);
-   
-                if(tx_was_empty){
-                    pthread_cond_signal(&u->tx_cond);
-                }
-                u->thr = val & 0xFF;
-                u->lsr |= LSR_TX_EMPTY;
-                need_irq_update = true;
                 /* soc
                 // maybe set TX irq pending if buffer empty (depends on semantics)
                 if (tx_was_empty && (u->ctrl & UART_CTRL_TX_INT_EN) && u->irq_cb) {
@@ -533,6 +554,7 @@ void uart_mmio_write(UARTDevice *u, uint64_t offset, uint32_t val, unsigned size
     }
     if(need_irq_update){
         uart_update_irq(u);
+        printf(stderr, "[UART] IRQ status after write: 0x%08x\n", u->irq_status);
     }
 }
 
@@ -797,22 +819,14 @@ uart_irq_cb_t cpu_irq_raise_cb(void *opaque, int level, int irq_num) {
 }
 
 void uart_update_irq(UARTDevice *u){
-    int old_irq = u->irq_pending;
-    int new_irq = 0;
-    // 检查是否有待处理的中断
-    // 检查中断条件
-    if ((u->ier & IER_RX_ENABLE) && (u->lsr & LSR_RX_READY)) {
-        new_irq = 1;  // 接收中断
-    } else if ((u->ier & IER_TX_ENABLE) && (u->lsr & LSR_TX_EMPTY)) {
-        new_irq = 1;  // 发送中断
-    }
-    
-    // 如果中断状态发生变化
-    if (old_irq != new_irq) {
-        u->irq_pending = new_irq;
-        
+
+    if (u->irq_pending) {
         if (u->plic) {
-            plic_set_irq(u->irq_num, new_irq);
+            plic_set_irq(u->irq_num, 1);
+        }
+    } else {
+        if (u->plic) {
+            plic_set_irq(u->irq_num, 0);
         } 
     }
 }
