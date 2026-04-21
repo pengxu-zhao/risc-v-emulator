@@ -30,6 +30,8 @@ static bool should_delegate_to_smode(CPU_State *cpu,uint64_t cause){
 
 static void take_smode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
 
+
+    // 1. 保存当前pc到sepc
     write_csr(cpu, CSR_SEPC, cpu->pc);
     uint64_t scause = is_interrupt ? (1ULL << 63) | (cause & 0x7fffffff) 
                                    : (cause & 0x7fffffff);
@@ -40,21 +42,25 @@ static void take_smode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
 
     uint64_t sstatus = read_csr(cpu,CSR_SSTATUS);
 
+    // 2.把当前sie保存到spie
     if (sstatus & SSTATUS_SIE) {
         sstatus |= SSTATUS_SPIE;
     } else {
         sstatus &= ~SSTATUS_SPIE;
     }
+    // 3. 关闭中断（清SIE位）
     sstatus &= ~SSTATUS_SIE;
 
+    // 4. 设置SPP位为当前特权级（0=U, 1=S）
     uint64_t spp = (cpu->privilege == 1) ? 1 : 0; // 1=S, 0=U
     sstatus = (sstatus & ~SSTATUS_SPP) | (spp << 8);
     
     write_csr(cpu,CSR_SSTATUS,sstatus);
-
+    // 5. 设置特权级为S
     if(cpu->privilege != 1)
         cpu->privilege = 1;
 
+    //6. 跳转到stvec指向的地址
     uint64_t stvec = read_csr(cpu, CSR_STVEC);
 
     if(log_enable){

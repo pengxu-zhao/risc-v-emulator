@@ -446,11 +446,11 @@ void uart_mmio_write(UARTDevice *u, uint64_t offset, uint32_t val, unsigned size
                // printf("val:%ld\n",val);
 
                 // 将字符推送到TX缓冲区
-                bool success = tx_buf_push(u, b);
+              /*  bool success = tx_buf_push(u, b);
                 if (!success) {
                     // 缓冲区满，可以设置溢出标志
                     u->lsr |= LSR_OE;
-                }
+                }*/
                 uint8_t ch = val & 0xFF;
                 u->thr = ch;
                 // 标记正在发送

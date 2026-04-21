@@ -149,36 +149,17 @@ int main() {
             
             //429899252 ready to call wait()
             //431817210  0x74
-            for( ;j <= 429901894; j++) //  0x74, 
+            for( ;j <= 431936953; j++) //  
             {       //0x800021b6   compare (pp->parent == p)
-                if(cpu[0].pc == 0x3ffffff0b0){
-                    printf("[kfork p->trapframe] j:%d a0:0x%08lx,a4:0x%08lx\n",j,cpu[0].gpr[10],cpu[0].gpr[14]);
+                if(cpu[0].pc == 0x800040a6 && j > 431385304){
+                   // printf("[] j:%d,pc:0x%08lx\n",j,cpu[0].pc);
+                   // break;
                 }
-                if(cpu[0].csr[CSR_TIME] <= 4299023400 && cpu[0].csr[CSR_TIME] >= 4299018400){
-                    log_enable = 1;
-                    if(cpu[0].pc >= 0x80000bce && cpu[0].pc <= 0x80000c0e) // acquire()
-                        log_enable = 0;
-                    else if(cpu[0].pc >= 0x80000b8e && cpu[0].pc <= 0x80000bcc) // push_off()
-                        log_enable = 0;    
-                    else if(cpu[0].pc >= 0x8000187c && cpu[0].pc <= 0x80001896) // mycpu()
-                            log_enable = 0;
-                    else if(cpu[0].pc >= 0x80000b64 && cpu[0].pc <= 0x80000b8c) // holding()
-                        log_enable = 0;
-                    else if(cpu[0].pc >= 0x80000c66 && cpu[0].pc <= 0x80000c9e) // release()
-                        log_enable = 0;    
-                    else if(cpu[0].pc >= 0x80000c12 && cpu[0].pc <= 0x80000c62) // pop_off()
-                        log_enable = 0;
-                    else if(cpu[0].pc >= 0x80001898 && cpu[0].pc <= 0x800018c6) // myproc()
-                        log_enable = 0;
-              
 
-                }else if(cpu[0].csr[CSR_TIME] <= 4232536000 && cpu[0].csr[CSR_TIME] >= 4232535800){
-                    log_enable = 0;
-                }
-                
-                else{
-                    log_enable = 0;
-                } 
+                if(j > 431936920){
+                    log_enable = 1;
+                }  
+
                 cpu_step(&cpu[i],memory);
                 
                 cpu[0].cycle_count++;
@@ -190,7 +171,7 @@ int main() {
                 //uint64_t v = bus_read(&cpu->bus,0x87f99de8,4);
                 uint64_t v = get_pa(&cpu[0],0x3fffffe000,ACC_LOAD);
                  if(v != last__v){        
-                    printf("v:0x%08lx last_v:0x%08lx,j:%d pc:0x%08lx\n",v,last__v,j,cpu[0].pc);
+                //    printf("v:0x%08lx last_v:0x%08lx,j:%d pc:0x%08lx\n",v,last__v,j,cpu[0].pc);
                     last__v = v;
                  }
                 

@@ -2053,6 +2053,7 @@ void exec_sret(CPU_State *cpu,uint32_t instr){
         return;
     }
 
+    // 1. 从 sepc 寄存器获取返回地址 -> pc
     uint64_t sepc = cpu->csr[CSR_SEPC];
 
 
@@ -2067,22 +2068,21 @@ void exec_sret(CPU_State *cpu,uint32_t instr){
 
     cpu->pc = sepc;
 
+    // 2. 从 sstatus 寄存器spp恢复特权级
     uint64_t sstatus = cpu->csr[CSR_SSTATUS];
     uint64_t spp = (sstatus >> 8) & 0x1;  // SPP 位
-    
-    // 恢复特权级
     cpu->privilege = (spp == 1) ? 1 : 0;
+
+     // 3.清除 SPP 位（设置为 0，表示来自 U 模式）
+    sstatus &= ~(1L << 8);
   
-    // 恢复 SIE 位（SPIE → SIE）
+    //  4. 从 sstatus 寄存器spie恢复 SIE 位（SPIE → SIE）
     uint64_t spie = (sstatus >> 5) & 0x1;  // SPIE 位
     sstatus &= ~(1L << 1);  // 清除 SIE 位
     sstatus |= (spie << 1); // 用 SPIE 恢复 SIE
 
-     // 清除 SPIE 位
+     // 5.清除 SPIE 位
     sstatus &= ~(1L << 5);
-    
-    // 清除 SPP 位（设置为 0，表示来自 U 模式）
-    sstatus &= ~(1L << 8);
     
     // 更新 sstatus
     cpu->csr[CSR_SSTATUS] = sstatus;
