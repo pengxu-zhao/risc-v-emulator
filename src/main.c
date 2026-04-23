@@ -36,7 +36,7 @@ Bus bus;
 extern CPU_State cpu[MAX_CORES];
 int log_enable = 0;
 
- int j = 0;
+int j,m = 0;
 
 
 
@@ -53,7 +53,8 @@ int main() {
            MEMORY_SIZE / (1024 * 1024 * 1024), MEMORY_BASE);
     
     init_memory();
-    
+
+
     // 初始化CPU
     printf("Initializing CPU...\n");
 
@@ -131,97 +132,65 @@ int main() {
      
         cpu[i].pc = entry_addr;
         printf("pc[%d]:0x%08lx\n",i,cpu[i].pc);
-        if(cpu[i].halted != true){     
             
-            //415421550
-            // 415283130  first to 800053ce
-
-            // 415283320 pc = 0x00000039 ??
-
-            //j:415283317 pc:0x800018a6   write 0x39 to x[1] ,tomorrow check it
-            //415283285, addr not in any memory region.
-            //执行kexec的时候才会建立PTE_U的页表，kexec在 forkret函数内，
-            //现在刚进入forkret函数 就因为PTE_U为0 而导致翻译出错了，
-           // 目前怀疑进入forkret之前的执行顺序不对，继续往前进行排查
-            //415264564   pc = 800053a6, mepc:0x80000e8e,sepc:0x80001dbe
-            // 硬件在处理中断跳转到stvec前 特权级自动切换到对应的级别。  
-            //发现问题所在是 sret指令的实现，应该是讲特权级切换到 status.xpp保存的特权级，而不是置为0
             
-            //429899252 ready to call wait()
-            //431817210  0x74
-            for( ;j <= 431936953; j++) //  
-            {       //0x800021b6   compare (pp->parent == p)
-                if(cpu[0].pc == 0x800040a6 && j > 431385304){
-                   // printf("[] j:%d,pc:0x%08lx\n",j,cpu[0].pc);
-                   // break;
-                }
+        //415421550
+        // 415283130  first to 800053ce
 
-                if(j > 431936920){
-                    log_enable = 1;
-                }  
+        // 415283320 pc = 0x00000039 ??
 
-                cpu_step(&cpu[i],memory);
-                
-                cpu[0].cycle_count++;
-                if(cpu[0].cycle_count % 100 == 0){
-                    clint_tick(&cpu->clint, 1);
-                }
-                
-                cpu->csr[CSR_TIME] += 10;
-                //uint64_t v = bus_read(&cpu->bus,0x87f99de8,4);
-                uint64_t v = get_pa(&cpu[0],0x3fffffe000,ACC_LOAD);
-                 if(v != last__v){        
-                //    printf("v:0x%08lx last_v:0x%08lx,j:%d pc:0x%08lx\n",v,last__v,j,cpu[0].pc);
-                    last__v = v;
-                 }
-                
-                if(cpu[0].halted == true){
-                    printf("halted j:%d pc:0x%08lx\n",j,cpu[0].pc);
-                    break;  
-                }
-
-                if(cpu[0].pc == 0x80001d6c && cpu[0].gpr[10] == 0x80010008){
-                    if(j > 416893615){
-                  //  printf("Found target pc:0x%08lx,j:%d\n",cpu[0].pc,j);
-                  // break;
-                    }
-                }
-
-                if(cpu[0].pc > 0x3fffffffff){
-                    printf("error pc addr,j:%d  pc:0x%08lc\n",j,cpu[0].pc);
-                    break;
-                }
-
-                if(cpu[0].gpr[6] == 0x8000000000087fff){
-                   // break;
-                }
-
-                if(cpu[0].pc == 0x66){
-                   // printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
-                  //  break;
-                }
-    
-                if(cpu[0].gpr[0] != 0){
-                    printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
-                    break;
-                }
-            
-     
-                virtio_disk_update(&cpu[i].cycle_count);
-
-                check_and_handle_interrupts(&cpu[i]);
-            
-               //uint64_t val = bus_read(&bus,0x87fb7de8,8);
-                
-               // uint64_t val2 = bus_read(&bus,0x87fb7e90,8);
-               // if((j > 414297515) && val != 0x505050505050505){
-                   // printf("j:%d pc:0x%08lx\n",j,cpu[i].pc);
-                  //  break;
-               // }
+        //j:415283317 pc:0x800018a6   write 0x39 to x[1] ,tomorrow check it
+        //415283285, addr not in any memory region.
+        //执行kexec的时候才会建立PTE_U的页表，kexec在 forkret函数内，
+        //现在刚进入forkret函数 就因为PTE_U为0 而导致翻译出错了，
+        // 目前怀疑进入forkret之前的执行顺序不对，继续往前进行排查
+        //415264564   pc = 800053a6, mepc:0x80000e8e,sepc:0x80001dbe
+        // 硬件在处理中断跳转到stvec前 特权级自动切换到对应的级别。  
+        //发现问题所在是 sret指令的实现，应该是讲特权级切换到 status.xpp保存的特权级，而不是置为0
+        
+        //429899252 ready to call wait()
+        //431817210  0x74
+        //for( ;j <= 431961669; j++)
+        while (1)
+        { 
+           
+            j++;
+            if(cpu[0].pc == 0x80001d98 && j > 431961660){
+                m = j;
+                printf("j:%d,cycle:%d,pc:0x%08lx\n",j,m,cpu->pc  );
             }
-        }else{
-            cpu[i].running = false;
+
+            if(j > m && j < m + 10){
+                log_enable = 1;
+            }else{
+                log_enable = 0;
+            }
+           
+
+            if(cpu[0].running == false){
+                break;
+            }
+
+            pthread_mutex_lock(&cpu->lock);
+
+            while (cpu->halted) {
+                pthread_cond_wait(&cpu->cond, &cpu->lock);
+            }
+
+            pthread_mutex_unlock(&cpu->lock);
+                
+            cpu_step(&cpu[i],memory);
+            
+            if(cpu[0].gpr[0] != 0){
+                printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
+                cpu[0].halted = true;
+            }
+            virtio_disk_update(&cpu[i].cycle_count);
+        
+            check_and_handle_interrupts(&cpu[i]);
+            
         }
+        
 
         
         printf("\nFinal CPU state:\n");

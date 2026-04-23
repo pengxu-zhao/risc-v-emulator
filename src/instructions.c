@@ -1852,50 +1852,16 @@ void exec_float(CPU_State* cpu,uint32_t instr){
 
 void exec_wfi(CPU_State* cpu,uint32_t instr){
 
-    // 检查当前是否有使能的中断待处理
-    uint64_t mstatus = (uint64_t)read_csr(cpu, CSR_MSTATUS);
-    uint64_t mie = (uint64_t)read_csr(cpu, CSR_MIE);
-    uint64_t mip = (uint64_t)read_csr(cpu, CSR_MIP);
-    
-    uint64_t pending_enabled = mie & mip;
-
-
-    if (pending_enabled && (mstatus & MSTATUS_MIE)) {
-        // 有使能的中断待处理，不等待，继续执行
-        fprintf(stderr,"[WFI]: Interrupts pending, continuing execution\n");
-        cpu->pc += 4;
-    } else {
-        // 没有中断待处理，进入等待状态
+    static bool is_wfi = false;
+    cpu->pc += 4;
+    pthread_mutex_lock(&cpu->lock);
+    cpu->halted = true;
+    if(!is_wfi){
         fprintf(stderr,"[WFI]: No enabled interrupts pending\n");
-        
-        // 在模拟器中，我们有几种选择：
-        
-        // 选项1：立即产生一个定时器中断（确保系统不卡死）
-        if (cpu->mtime >= cpu->mtimecmp) {
-            // 如果已经超时，立即设置中断
-            uint64_t mip_val = read_csr(cpu, CSR_MIP);
-            mip_val |= MIP_MTIP;
-            write_csr(cpu, CSR_MIP, mip_val);
-           // fprintf(stderr,"[WFI]: Setting timer interrupt to avoid deadlock\n");
-        } else {
-            // 选项2：快进到下一个定时器中断
-            uint64_t cycles_until_interrupt = cpu->mtimecmp - cpu->mtime;
-            if (cycles_until_interrupt < 1000) { // 如果很快就有中断
-                cpu->mtime = cpu->mtimecmp; // 快进时间
-                uint64_t mip_val = read_csr(cpu, CSR_MIP);
-                mip_val |= MIP_MTIP;
-                write_csr(cpu, CSR_MIP, mip_val);
-             //   fprintf(stderr,"[WFI]: Fast-forwarding to next timer interrupt\n");
-            }
-        }
-        
-        // 无论如何都继续执行，避免模拟器卡死
-        
-        
-        // 立即检查是否有中断需要处理
-        //check_pending_and_take(cpu);
-        
+        is_wfi = true;
     }
+    pthread_mutex_unlock(&cpu->lock);
+    
 }
 
 void exec_3b(CPU_State* cpu,uint32_t instr){
@@ -2088,9 +2054,9 @@ void exec_sret(CPU_State *cpu,uint32_t instr){
     cpu->csr[CSR_SSTATUS] = sstatus;
 
 
-    if(log_enable){
-        printf("[sret] privilege:%d,sstatus:0x%16lx\n",cpu->privilege,cpu->csr[CSR_SSTATUS]);
-        printf("[sret] Returning to address: 0x%16lx\n", cpu->pc);
-    }
+    
+    printf("[sret] privilege:%d,sstatus:0x%16lx\n",cpu->privilege,cpu->csr[CSR_SSTATUS]);
+    printf("[sret] Returning to address: 0x%16lx\n", cpu->pc);
+    
 
 }

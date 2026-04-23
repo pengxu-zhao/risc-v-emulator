@@ -77,7 +77,8 @@ typedef struct {
 
     int privilege; /* 0=U,1=S,3=M */
     int hartid;
-
+    pthread_mutex_t lock;
+    pthread_cond_t  cond;
     uint64_t mstatus;
     uint64_t mcause;
     uint64_t mepc;
@@ -91,6 +92,8 @@ typedef struct {
     
     // 运行状态标志
     bool running;
+
+    bool interrupt_enabled;
     
     // 性能计数器（可选）
     uint64_t cycle_count;
@@ -147,6 +150,6 @@ void cpu_dump_registers(CPU_State* cpu);
 static inline uint64_t read_csr(CPU_State *cpu, unsigned id){ return cpu->csr[id & 0xfff]; }
 static inline void write_csr(CPU_State *cpu, unsigned id, uint64_t v){ cpu->csr[id & 0xfff] = v; }
 uint64_t get_cpu_cycle(CPU_State *cpu);
-
+void cpu_try_wakeup(CPU_State *cpu);
 
 #endif

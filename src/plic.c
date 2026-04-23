@@ -187,13 +187,15 @@ void plic_update(int cpu_id) {
     if(max_irq > 0){
         cpu[cpu_id].csr[CSR_MIP] |= MIP_MEIP;
         plic.current_irq[cpu_id] = max_irq;
+        cpu_try_wakeup(&cpu[cpu_id]);
+        printf("[update] cpu_id:%d,csr_mip:0x%16lx\n",cpu_id,cpu[cpu_id].csr[CSR_MIP]);
     }else{
         cpu[cpu_id].csr[CSR_MIP] &= ~MIP_MEIP;
         plic.current_irq[cpu_id] = 0;
     }
     plic.irq_pending[cpu_id] = (max_irq > 0);
 
-     if(log_enable){
+    if(log_enable){
         printf("[update] cpu_id:%d,csr_mip:0x%16lx\n",cpu_id,cpu[cpu_id].csr[CSR_MIP]);
     }
 }

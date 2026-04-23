@@ -111,4 +111,5 @@ uint32_t mmio_read(UARTDevice *uart,uint64_t offset,int size);
 void mmio_write(UARTDevice *uart,uint64_t offset, uint32_t val, int size);
 void uart_cleanup(UARTDevice* uart);
 void uart_destroy(UARTDevice *u);
+
 #endif

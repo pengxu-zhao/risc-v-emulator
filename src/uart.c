@@ -170,18 +170,29 @@ static bool tx_buf_pop(UARTDevice *u, uint8_t *out) {
 
 static void rx_buf_push(UARTDevice *u, uint8_t b) {
     pthread_mutex_lock(&u->lock);
+
     if (rx_buf_is_full(u)) {
-        // drop oldest policy
         u->rx_tail = (u->rx_tail + 1) % UART_RX_BUF_SIZE;
         u->rx_count--;
         u->lsr |= LSR_OE;
     }
+
     u->rx_buf[u->rx_head] = b;
     u->rx_head = (u->rx_head + 1) % UART_RX_BUF_SIZE;
     u->rx_count++;
-    u->lsr |= LSR_DR; //设置数据就绪位
+
+    // 🔥关键1：设置数据就绪
+    u->lsr |= LSR_DR;
+
+    // 🔥关键2：只要有数据就触发中断（模拟16550）
+    if (u->ier & 0x01) {   // RX interrupt enable
+        if (u->plic) {
+            printf("[UART] RX push triggering IRQ %d\n", u->irq_num);
+            plic_set_irq(u->irq_num, 1);
+        }
+    }
+
     pthread_mutex_unlock(&u->lock);
-    uart_update_irq(u);
 }
 
 static bool rx_buf_pop(UARTDevice *u, uint8_t *out) {
@@ -272,7 +283,8 @@ static void *uart_tx_thread(void *arg) {
 /* ---------- RX thread: reads from stdin and pushes to rx_buf ---------- */
 static void *uart_rx_thread(void *arg) {
     UARTDevice *u = (UARTDevice *)arg;
-
+    printf("[UART] RX thread started\n");
+    fflush(stdout);
     int input_fd = STDIN_FILENO;
 
        // 设置stdin为非阻塞
@@ -281,20 +293,18 @@ static void *uart_rx_thread(void *arg) {
 
     // set stdin non-blocking? We'll use blocking read in a loop to keep things simple.
     while (u->running) {
+        
         uint8_t buf[128];
         ssize_t r = read(input_fd, buf, sizeof(buf));
-        
         if (r <= 0) {
-            if (r == 0) {
-                // EOF -> stop reading
-                break;
-            }
             if (errno == EINTR) continue;
-            // If no data and blocking, sleep briefly
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                perror("[UART] read error");  // 记录真实错误
+
+            if (errno == EAGAIN || errno == EWOULDBLOCK || r == 0) {
+                usleep(10000);
+                continue;
             }
-            usleep(10000);
+
+            perror("[UART] read error");
             continue;
         }
         for (ssize_t i = 0; i < r; ++i) 
@@ -302,12 +312,15 @@ static void *uart_rx_thread(void *arg) {
             // 特殊处理：如果按Ctrl+D (EOF)
             if (buf[i] == 0x04) {
                 printf("\n[UART] EOF (Ctrl+D) received\n");
+                cpu[0].running = false; // 直接停止 CPU 运行
                 continue;
             }
             rx_buf_push(u, buf[i]);
+            printf("RX thread got: %c\n", buf[i]);
+            fflush(stdout);
          
         }
-      
+        
         //uart_maybe_raise_irq(u); // may set RX irq
 
     }
@@ -331,8 +344,12 @@ uint32_t uart_mmio_read(UARTDevice *u, uint64_t offset, unsigned size) {
                 uint8_t b = 0;
                 if (rx_buf_pop(u, &b)) {
                     res = (uint32_t)b;
-                    u->lsr &= ~LSR_OE;
-                    uart_update_irq(u);
+                     if (u->rx_count == 0) {
+                        u->lsr &= ~LSR_DR;
+                        if (u->plic) {
+                            plic_set_irq(u->irq_num, 0);
+                        }
+                    }
                 } else {
                     res = 0; // or 0: choose convention (we choose 0xFFFFFFFF to indicate empty)
                 }
@@ -847,19 +864,8 @@ void mmio_write(UARTDevice *uart,uint64_t offset, uint32_t val, int size) {
     }
 }
 
-/* ---------- Simple sanity main for local testing ---------- */
-#ifdef UART_DEVICE_TEST_MAIN
-int main(void) {
-    UARTDevice *u = uart_create(0x10000000, NULL, cpu_irq_raise_cb, 3);
-    if (!u) { fprintf(stderr, "create failed\n"); return 1; }
-    // simple loop to echo: main thread will write 'A' every second
-    for (int i = 0; i < 10; ++i) {
-        uart_mmio_write(u, UART_REG_DATA, 'A' + i, 4);
-        sleep(1);
-    }
-    uart_destroy(u);
-    return 0;
-}
-#endif
+
+
+
 
 
