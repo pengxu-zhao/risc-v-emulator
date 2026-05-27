@@ -164,8 +164,6 @@ void clint_update_interrupts(CLINT* clint) {
 void clint_tick(CLINT* clint, uint64_t cycles) {
     if (!clint || cycles == 0) return;
     
-    
-
     clint->mtime += cycles;
     
     // 检查是否触发中断

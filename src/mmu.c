@@ -1,4 +1,5 @@
 #include "mmu.h"
+
 extern int j ;
 extern int log_enable;
 
@@ -6,26 +7,45 @@ extern int log_enable;
 
 
 int tlb_lookup(CPU_State *cpu, uint64_t va, int acc,uint64_t *pa,uint16_t asid);
-void tlb_insert(CPU_State *cpu, uint64_t va, uint64_t pa, uint8_t* flags,uint16_t asid);
+void tlb_insert(CPU_State *cpu, uint64_t va, uint64_t pa, uint8_t* flags,uint16_t asid,
+            PageSize psize);
 
 static inline void handle_fault(CPU_State *cpu, FaultCtx *f)
 {
+
+    uint64_t ret = 0;
+
     cpu->mem_fault.valid = 1;
     cpu->mem_fault.vaddr = f->va;
     cpu->mem_fault.acc_type = f->acc_type;
 
+    
     // ===== 关键：统一转 ISA fault =====
     switch (f->acc_type) {
         case ACC_FETCH:
-            cpu->mem_fault.cause = FAULT_INST_PAGE;
+            cpu->mem_fault.cause = 0x12;
             break;
         case ACC_LOAD:
-            cpu->mem_fault.cause = FAULT_LOAD_PAGE;
+            cpu->mem_fault.cause = 0x13;
             break;
         case ACC_STORE:
-            cpu->mem_fault.cause = FAULT_STORE_PAGE;
+            cpu->mem_fault.cause = 0x15;
             break;
     }
+
+    if( (1 << cpu->mem_fault.cause) & cpu->csr[CSR_MEDELEG]){ //s mode
+        take_smode_fault(cpu,cpu->mem_fault.cause,false);
+    
+    }else{
+        take_mmode_fault(cpu,cpu->mem_fault.cause,false);
+    }
+
+    if(f->acc_type == ACC_FETCH){
+        ret = cpu->pc;
+    }else{
+        ret = cpu->mem_fault.vaddr;
+    }
+    return ret;
 }
 
 // -------------------- 物理内存访问（直接使用物理地址，不走 mmu） --------------------
@@ -106,6 +126,7 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
 
     */
     static int depth = 0;
+    PageSize psize = PAGE_4KB;
     cpu->satp = cpu->csr[CSR_SATP];
    
 
@@ -135,6 +156,7 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
         uint64_t pte = 0;
 
         pte = phys_read_u64(cpu,pte_addr);
+
         if((pte & PTE_V) == 0) {
             return MMU_FAULT_PAGE;  
         }
@@ -234,12 +256,18 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
 
         switch (i)
         {
-            //case 2:  pa = (((pte >> 28) & 0x3FFFFFF) << 30) | (va & 0x3FFFFFF); break;
-            //case 1:  pa = (((pte >> 19) & 0x7FFFFFFFF) << 21) | (va & 0x1FFFFF);  break;
+            case 2:  
+                pa = (((pte >> 28) & 0x3FFFFFF) << 30) | (va & 0x3FFFFFF); 
+                psize = PAGE_1GB;
+                break;
+            case 1:  
+                pa = (((pte >> 19) & 0x7FFFFFFFF) << 21) | (va & 0x1FFFFF);  
+                psize = PAGE_2MB;
+                break;
             case 0: {
                     uint64_t pa_ppn = (pte >> 10) & ((1 << 44) - 1);
                     pa = (pa_ppn << 12) | pgoff;
-
+                    psize = PAGE_4KB;
                     break;
                     }
             default:            break;
@@ -254,7 +282,7 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
         uint64_t asid = cpu->asid;
       //  printf("---=-=-=pte:0x%08x\n",pte);
        // printf("before tlb insert  flag:0x%08x,0x%08x,0x%02x\n",va,pa,*flags);
-        tlb_insert(cpu,va,pte,flags,asid);
+        tlb_insert(cpu,va,pte,flags,asid,psize);
         return MMU_OK;
     }
 
@@ -319,42 +347,89 @@ static inline int tlb_check(CPU_State* cpu, int acc, TLBEntry *e) {
 }
 
 int tlb_lookup(CPU_State *cpu, uint64_t va, int acc, uint64_t *pa, uint16_t asid) {
-    uint64_t vpn = (va >> 12) & 0x3FFFFFF;
-    uint64_t page_off = va & 0xFFF;
-
-    // ====================== 【关键修复】构造正确的 tag ======================
-    uint64_t match_tag = vpn | ((uint64_t)asid << 26);
-    // ======================================================================
+    uint64_t vpn = 0;
+    uint64_t page_off = 0;
+    uint64_t match_tag = 0;
+    uint64_t shift = 0;
 
     for (int i = 0; i < TLB_SIZE; i++) {
         TLBEntry *e = &cpu->tlb.entries[i];
-        if (!e->valid) continue;
 
+        switch (e->page_size)
+        {
+        case PAGE_4KB:
+            shift = 12;
+            vpn = (va >> 12) & 0x3FFFFFF;
+            page_off = va & 0xFFF;
+            match_tag = vpn | ((uint64_t)asid << 26);
+            break;
+        case PAGE_2MB:
+            shift = 21;
+            vpn = (va >> 21) & 0x1FFFFF;
+            page_off = va & 0x1FFFFF;
+            match_tag = vpn | ((uint64_t)asid << 21);
+            break;
+        case PAGE_1GB:
+            shift = 30;
+            vpn = (va >> 30) & 0x3FF;
+            page_off = va & 0x3FFFFFFF;
+            match_tag = vpn | ((uint64_t)asid << 30);
+            break;
+        default:
+            break;
+        }
+
+        if (!e->valid) continue;
         // ====================== 正确匹配 ======================
         if (e->global) {
             // 全局页：只对比 VPN
-            if ((e->tag & 0x3FFFFFF) != vpn) continue;
+            if(e->page_size == PAGE_1GB){
+                if ((e->tag & 0x3FF) != vpn) continue;
+            }
+            else if(e->page_size == PAGE_2MB){
+                if ((e->tag & 0x1FFFFF) != vpn) continue;
+            }
+            else {
+                if ((e->tag & 0x3FFFFFF) != vpn) continue;
+            }
         } else {
             // 非全局页：tag 必须完全一致（VPN+ASID）
             if (e->tag != match_tag) continue;
         }
-        // ======================================================
-
+        
         // 命中
         e->last_used = cpu->tlb_cnt++;
         TLBResult f = tlb_check(cpu, acc, e);
         if (f != TLB_OK) return f;
-
-        *pa = (e->ppn << 12) | page_off;
-        return TLB_OK;
+        *pa = (e->ppn << shift) | page_off;
+        return TLB_OK; 
     }
 
     return TLB_MISS;
 }
 
-void tlb_insert(CPU_State *cpu, uint64_t va, uint64_t pte, uint8_t* flags, uint16_t asid) {
-    uint64_t vpn = (va >> 12) & 0x3FFFFFF;
-    uint64_t ppn = (pte >> 10) & 0xFFFFFFFFFFF;
+void tlb_insert(CPU_State *cpu, uint64_t va, uint64_t pte, uint8_t* flags, uint16_t asid,
+                    PageSize psize) {
+    uint64_t vpn = 0;
+    uint64_t ppn = 0;
+    switch (psize)
+    {
+    case PAGE_4KB:
+        vpn = (va >> 12) & 0x3FFFFFF;
+        ppn = (pte >> 10) & 0xFFFFFFFFFFF;
+        break;
+    case PAGE_2MB:
+        vpn = (va >> 21) & 0x1FFFFF;
+        ppn = (pte >> 19) & 0x7FFFFFFFF;
+        break;
+    case PAGE_1GB:
+        vpn = (va >> 30) & 0x3FF;
+        ppn = (pte >> 28) & 0x3FFFFFF;
+        break;
+    default:
+        break;
+    }
+                        
     bool global = (pte >> 5) & 0x1;  // G位
 
     // LRU 替换
@@ -378,6 +453,7 @@ void tlb_insert(CPU_State *cpu, uint64_t va, uint64_t pte, uint8_t* flags, uint1
     entry->ppn = ppn;
     entry->asid = asid;
     entry->last_used = cpu->tlb_cnt++;
+    entry->page_size = psize;
 
     if (global) {
         // 全局页：只存 VPN
@@ -423,61 +499,83 @@ void map_vaddr_to_paddr(CPU_State* cpu,uint64_t vaddr,uint64_t paddr,uint64_t si
 
 }
 
+void take_smode_fault(CPU_State *cpu, uint64_t cause, bool is_interrupt) {
+    // 1. 设置 scause 寄存器
+    write_csr(cpu, CSR_SCAUSE, cause);
+
+    // 2. 设置 stval 寄存器（通常是导致异常的地址）
+    write_csr(cpu, CSR_STVAL, cpu->mem_fault.vaddr);
+
+    // 3. 切换到 S 模式并跳转到异常处理程序
+    
+    write_csr(cpu, CSR_SEPC, cpu->pc); // 保持原来的 PC
+
+    uint64_t sstatus = read_csr(cpu,CSR_SSTATUS);
+    // 4.把当前sie保存到spie
+    if (sstatus & SSTATUS_SIE) {
+        sstatus |= SSTATUS_SPIE;
+    } else {
+        sstatus &= ~SSTATUS_SPIE;
+    }
+    // 5. 关闭中断（清SIE位）
+    sstatus &= ~SSTATUS_SIE;
+
+    // 4. 设置SPP位为当前特权级（0=U, 1=S）
+    uint64_t spp = (cpu->privilege == 1) ? 1 : 0; // 1=S, 0=U
+    sstatus = (sstatus & ~SSTATUS_SPP) | (spp << 8);
+    
+    write_csr(cpu,CSR_SSTATUS,sstatus);
+    // 7. 设置特权级为S
+    if(cpu->privilege != 1)
+        cpu->privilege = 1;
+
+    // 跳转到 S 模式的异常处理程序
+    cpu->pc = cpu->csr[CSR_STVEC] & ~0x3ULL; 
+    if(cpu->csr[CSR_SEPC] == 0x80201040){
+        printf("take smode fault: cause:0x%08x, stval:0x%08x\n",cause,cpu->mem_fault.vaddr);
+
+        printf("pc:0x%016lx\n",cpu->pc);
+    }
+}
+
+void take_mmode_fault(CPU_State *cpu, uint64_t cause, bool is_interrupt) {
+    // 1. 设置 mcause 寄存器
+    write_csr(cpu, CSR_MCAUSE, cause);
+
+    // 2. 设置 mtval 寄存器（通常是导致异常的地址）
+    write_csr(cpu, CSR_MTVAL, cpu->mem_fault.vaddr);
+
+    // 3. 切换到 M 模式并跳转到异常处理程序
+    
+    write_csr(cpu, CSR_MEPC, cpu->pc); // 保持原来的 PC
+
+    uint64_t mstatus = read_csr(cpu,CSR_MSTATUS);
+    // 4.把当前mie保存到mpie
+    if (mstatus & MSTATUS_MIE) {
+        mstatus |= MSTATUS_MPIE;
+    } else {
+        mstatus &= ~MSTATUS_MPIE;
+    }
+    // 5. 关闭中断（清MIE位）
+    mstatus &= ~MSTATUS_MIE;
+
+    // 4. 设置MPP位为当前特权级（0=U, 1=S）
+    uint64_t mpp = (cpu->privilege == 1) ? 1 : 0; // 1=S, 0=U
+    mstatus = (mstatus & ~MSTATUS_MPP_MASK) | (mpp << 11);
+    
+    write_csr(cpu,CSR_MSTATUS,mstatus);
+    // 7. 设置特权级为S
+    if(cpu->privilege != 1)
+        cpu->privilege = 1;
+
+    // 跳转到 S 模式的异常处理程序
+    cpu->pc = cpu->csr[CSR_MTVEC] & ~0x3ULL; 
+}
+
 
 // handle page fault
 void handle_page_fault(CPU_State *cpu, uint64_t va, int acc) {
 
-    /*
-    // 设置异常信息
-    cpu->sepc = cpu->pc; // 保存异常 PC
-    cpu->stval = va;     // 保存错误地址
-    switch (acc) {
-        case ACC_FETCH:  cpu->scause = 12; break; // 指令页面错误
-        case ACC_LOAD:   cpu->scause = 13; break; // 加载页面错误
-        case ACC_STORE:  cpu->scause = 15; break; // 存储页面错误
-        default:         cpu->scause = 0;  break; // 未知
-    }
-
-    // 检查页表
-    uint64_t vpn = va >> 12;
-    uint64_t page_off = va & 0xFFF;
-    uint64_t pte_addr = (cpu->satp & 0xFFFFF) << 12;
-    uint64_t pte = memory_read(cpu->mem,pte_addr + vpn * 4,4);
-
-    if (!(pte & PTE_V)) {
-        // 无效 PTE，尝试分配新页面
-        if (cpu->next_free_ppn * 0x1000 < cpu->mem_size) {
-            uint64_t ppn = cpu->next_free_ppn++;
-            uint64_t pa = (ppn << 12) | page_off;
-            uint64_t flags = 0;
-            if (acc == ACC_FETCH) flags |= PTE_X;
-            if (acc == ACC_LOAD)  flags |= PTE_R;
-            if (acc == ACC_STORE) flags |= PTE_W | PTE_R;
-            // 更新页表
-            uint64_t pte = (ppn << 10) | flags | PTE_V;
-            memory_write(cpu->mem,pte_addr + vpn * 4, pte, 4);
-            // 更新 TLB0xA00031
-            tlb_insert(cpu,va,pa,flags,cpu->asid);
-            // 继续执行（无需跳转）
-            return;
-        } else {
-            fprintf(stderr, "Out of memory for page allocation: va=0x%x\n", va);
-            exit(1);
-        }
-    } else {
-        // 权限错误或其他问题
-        fprintf(stderr, "Page fault: va=0x%x, acc=%d, scause=%d\n", va, acc, cpu->scause);
-        exit(1);
-    }
-
-    // 如果支持操作系统，跳转到 stvec 处理程序
-    if (cpu->stvec != 0) {
-        cpu->pc = cpu->stvec;
-        // 模拟器需实现异常处理程序的执行
-    } else {
-        fprintf(stderr, "No exception handler, terminating\n");
-        exit(1);
-    } */
 }
 
 
@@ -536,7 +634,6 @@ uint64_t get_pa(CPU_State *cpu,uint64_t vaddr,int acc_type){
         return vaddr;
     }
     int result = tlb_lookup(cpu,vaddr,acc_type,&pa,cpu->asid);
-
     if(result == TLB_OK){
         return pa;
     }
@@ -552,6 +649,7 @@ uint64_t get_pa(CPU_State *cpu,uint64_t vaddr,int acc_type){
     }
 
     result = sv39_translate(cpu,vaddr,acc_type,&pa,&flags);
+
     if(result != MMU_OK){
         FaultCtx f = {
             .src = result,

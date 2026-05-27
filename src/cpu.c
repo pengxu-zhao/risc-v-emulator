@@ -36,6 +36,12 @@ void cpu_init(CPU_State* cpu, uint8_t core_id) {
     cpu->running = true;
     cpu->mip = cpu->csr[CSR_MIP];
     cpu->mie = cpu->csr[CSR_MIE];
+    cpu->csr[CSR_MISA] = 1ULL << 18  // 支持 S 模式
+                           | 1ULL << 20  // 支持 U 模式;
+                           | 1ULL << 63;// RV64
+
+    cpu->gpr[10] = 0;                 // a0 = hartid
+    cpu->gpr[11] = DTB_LOAD_ADDR;        // a1 = dtb address
 
     // 初始化指令表
     init_instruction_table();
@@ -66,6 +72,11 @@ void cpu_step(CPU_State* cpu, uint8_t* memory) {
     if(log_enable){
     printf("Instruction: 0x%08x\n", instruction);
     }
+
+    if(instruction == 0){
+        printf("ERROR: Invalid instruction (0) at PC: 0x%08lx\n", cpu->pc);
+        return;
+    }
     // 解码和执行
     decode_and_execute(cpu, instruction);
     
@@ -77,6 +88,8 @@ void cpu_step(CPU_State* cpu, uint8_t* memory) {
     
     // 更新性能计数器
     cpu->inst_count++;
+    cpu->csr[CSR_RDCYCLE] = cpu->cycle_count;
+    cpu->csr[CSR_INSTRET] = cpu->inst_count;
 
 }
 

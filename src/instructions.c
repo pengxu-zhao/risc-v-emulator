@@ -6,6 +6,7 @@
 #include "trap_vector.h"
 #include "mmu.h"
 #include "bus.h"
+#include "cache.h"
 
 
 extern uint8_t* memory;
@@ -819,7 +820,7 @@ void exec_bge(CPU_State* cpu,uint32_t instr){
     
     int64_t imm = (int64_t)(((int32_t)imm12 << 19) >> 19);
 
-    cpu->pc = cpu->gpr[rs1] >= cpu->gpr[rs2] ? cpu->pc + imm :cpu->pc + 4;
+    cpu->pc = (int64_t)cpu->gpr[rs1] >= (int64_t)cpu->gpr[rs2] ? cpu->pc + imm :cpu->pc + 4;
     if(log_enable){
         fprintf(stderr,"[bge]x[rs1:%d]:0x%08lx >= x[rs2:%d]:0x%08lx? imm:0x%08lx\n",
          rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],imm);
@@ -1120,8 +1121,38 @@ void exec_ecall(CPU_State* cpu, uint32_t instruction) {
 }
 
 //ebreak
+
+uint64_t update_mstatus_for_trap(CPU_State* cpu, uint64_t cause) {
+    uint64_t mstatus = cpu->csr[CSR_MSTATUS];
+    // 保存当前 MIE 到 MPIE
+    mstatus = (mstatus & ~MSTATUS_MPIE) | ((mstatus & MSTATUS_MIE) ? MSTATUS_MPIE : 0);
+    // 禁止 MIE
+    mstatus &= ~MSTATUS_MIE;
+    // 设置 MPP 为当前特权级别
+    mstatus = (mstatus & ~MSTATUS_MPP_MASK) | (cpu->privilege << MSTATUS_MPP_SHIFT);
+    return mstatus;
+}
+
+
 void exec_ebreak(CPU_State* cpu,uint32_t instructions){
-    cpu->halted = true;
+    
+    // 1. 保存当前 PC
+    if (cpu->privilege <= 3) {
+        cpu->csr[CSR_MEPC] = cpu->pc;
+        cpu->csr[CSR_MCAUSE] = 3;   // breakpoint exception
+        // mtval 可以设为当前 pc 或 0，标准未强制
+        cpu->csr[CSR_MTVAL] = 0;
+        // 更新 mstatus
+        cpu->csr[CSR_MSTATUS] = update_mstatus_for_trap(cpu, 3);
+    }
+    // 如果支持委托（可选），这里检查 medeleg 并可能跳转到 S 模式
+    // 简单实现可以全部在 M 模式处理
+
+    // 2. 跳转到陷阱向量
+    cpu->privilege = 3;   // 进入机器模式
+    cpu->pc = cpu->csr[CSR_MTVEC]; // 跳转到 mtvec 指向的地址
+    // 注意：若 mtvec 为向量模式，需要根据 mcause 计算偏移量
+
 }
 
 //mret
@@ -1254,7 +1285,21 @@ static void load_lw(CPU_State* cpu,uint64_t addr,uint8_t rd){
         fprintf(stderr,"[lw] x[rd:%d]:0x%08lx,va:0x%08lx,pa:0x%08lx\n",
             rd,cpu->gpr[rd],addr,addr);
     }
+}
 
+void exec_sll(CPU_State *cpu,uint32_t instr){
+    uint8_t rd = (instr >> 7) & 0x1F;
+    uint8_t rs1 = (instr >> 15) & 0x1F;
+    uint8_t rs2 = (instr >> 20) & 0x1F;
+
+    if(rd != 0){
+        cpu->gpr[rd] = cpu->gpr[rs1] << (cpu->gpr[rs2] & 0x3F);
+    }
+    if(log_enable){
+        fprintf(stderr,"[sll] x[%d]:0x%16lx = x[%d]:0x%16lx << x[%d]:0x%16lx\n",
+                    rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
+    }
+    cpu->pc += 4;
 }
 
 //load
@@ -1694,10 +1739,18 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
                     cpu->halted = true;
                     return;
                 }
+                /*1.read old value 
+                  2.write new value to old addr 
+                  3.write old value to rd
+                  
+                  atomic, the whole process cannot be interrupted 
+                  by other instructions,harts, including interrupts and exceptions.
+                  */
                 uint32_t tmp = bus_read(&cpu->bus,addr,4);
                 bus_write(&cpu->bus,addr,cpu->gpr[rs2],4);
-
                 write_gpr(cpu,rd,tmp);
+                
+
                 cpu->pc += 4;
                 if(log_enable){
                 fprintf(stderr,"[AMOSWAP.W] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx,tmp:0x%08x",
@@ -1723,7 +1776,80 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
         default:
             break;
         }
-    
+    }else if(funct3 == 0b011){//.D
+        switch (funct7)
+        {
+        case 0b00001: //AMOSWAP.D
+            {   
+                if(cpu->gpr[rs1] % 8 != 0){
+                    fprintf(stderr,"addr error\n");
+                    cpu->halted = true;
+                    return;
+                }
+                uint64_t tmp = bus_read(&cpu->bus,addr,8);
+                bus_write(&cpu->bus,addr,cpu->gpr[rs2],8);
+                write_gpr(cpu,rd,tmp);
+                
+
+                cpu->pc += 4;
+                if(log_enable){
+                fprintf(stderr,"[AMOSWAP.D] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx,tmp:0x%16lx",
+                        rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],tmp);
+                }
+            
+            break;
+            }
+        case 0b00000: //amoadd.d
+        {
+            
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+            
+            old_val = bus_read(&cpu->bus,addr,8); 
+            val += old_val;
+            bus_write(&cpu->bus,addr,val,8);
+            if(rd != 0){
+                cpu->gpr[rd] = old_val;
+            }
+            cpu->pc += 4;
+            break;
+        }
+        case 0b00010: //lr.d
+        {
+            uint64_t val = bus_read(&cpu->bus,addr,8);
+            if(rd != 0){
+                cpu->gpr[rd] = val;
+            }
+            cpu->reserv_addr = addr;
+            cpu->reserv_valid = true;
+            cpu->pc += 4;
+            if(log_enable){
+                fprintf(stderr,"[LR.D] x[%d]:0x%16lx,addr:0x%16lx\n",rd,cpu->gpr[rd],addr);
+            }
+            break;
+        }
+        case 0b00011: //sc.d
+        {
+            if(!cpu->reserv_valid || cpu->reserv_addr != addr){
+                if(rd != 0){
+                    cpu->gpr[rd] = 1; // sc失败，rd写1
+                }
+            }else{
+                bus_write(&cpu->bus,addr,cpu->gpr[rs2],8);
+                if(rd != 0){
+                    cpu->gpr[rd] = 0; // sc成功，rd写0
+                }
+            }
+            cpu->reserv_valid = false;
+            cpu->pc += 4;
+            if(log_enable){
+                fprintf(stderr,"[SC.D] x[%d]:0x%16lx,addr:0x%16lx\n",rd,cpu->gpr[rd],addr);
+            }
+            break;
+        }
+        default:
+            break;
+        }
     }
 }
 
@@ -1857,7 +1983,8 @@ void exec_wfi(CPU_State* cpu,uint32_t instr){
     pthread_mutex_lock(&cpu->lock);
     cpu->halted = true;
     if(!is_wfi){
-        fprintf(stderr,"[WFI]: No enabled interrupts pending\n");
+        fprintf(stderr,"[WFI]: No enabled interrupts pending j:%ld\n", j);
+     
         is_wfi = true;
     }
     pthread_mutex_unlock(&cpu->lock);
@@ -1944,9 +2071,28 @@ void exec_3b(CPU_State* cpu,uint32_t instr){
         }
         cpu->pc += 4;
     }
-    else{
-        fprintf(stderr,"Unknown 3b instruction: funct7=0x%02x,funct3=0x%01x\n",funct7,funct3);
-        
+    else if(funct7 == 0b0000001 && funct3 == 0b000){ //mulw
+        int32_t val1 = (int32_t)(cpu->gpr[rs1] & 0xFFFFFFFF);
+        int32_t val2 = (int32_t)(cpu->gpr[rs2] & 0xFFFFFFFF);
+
+        int64_t mul_result = (int64_t)val1 * (int64_t)val2;
+        int64_t result = (int64_t)(int32_t)(mul_result & 0xFFFFFFFF);
+
+        if(rd != 0){
+            cpu->gpr[rd] = (uint64_t)result;
+        }
+        cpu->pc += 4;
+
+        if(log_enable){
+            fprintf(stderr,"[mulw] x[%d]:0x%08lx = x[%d]:0x%08lx * x[%d]:0x%08lx\n",
+                    rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
+        }
+
+
+    }else{
+        if(log_enable){
+            fprintf(stderr,"Unknown 3b instruction at pc:0x%08lx funct7=0x%02x,funct3=0x%01x\n",cpu->pc,funct7,funct3);
+        }
     }
 }
 

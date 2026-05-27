@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../../xv6-riscv"
+		},
+		{
+			"path": "../../../opensbi"
+		}
+	],
+	"settings": {}
+}

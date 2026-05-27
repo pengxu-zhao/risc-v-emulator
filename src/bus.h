@@ -14,6 +14,7 @@ typedef struct {
 typedef struct {
     MMIORegion regions[MAX_MMIO_REGIONS];
     int region_count;
+    bool cache_enabled; // 是否启用缓存
 } Bus;
 
 void bus_register_mmio(Bus *bus, uint64_t base, uint64_t size,

@@ -27,6 +27,9 @@
 #define NUM_FGPR 32
 #define CSR_COUNT 4096
 #define MAX_CORES 4
+#define SBI_LOAD_ADDR 0x80000000
+#define IMAGE_LOAD_ADDR 0x80200000
+#define DTB_LOAD_ADDR 0x87000000
 
 #define CLINT_BASE_ADDR    0x02000000
 #define CLINT_SIZE         0x10000
@@ -70,14 +73,31 @@
 #define CSR_MCAUSE   0x342
 #define CSR_MTVAL    0x343
 #define CSR_MIP      0x344
+#define CSR_PMPCFG0    0x3A0
+#define CSR_PMPADDR0   0x3B0
+#define CSR_PMPADDR1   0x3B1
+#define CSR_PMPADDR2   0x3B2
+#define CSR_PMPADDR3   0x3B3
+#define CSR_PMPADDR4   0x3B4
+#define CSR_PMPADDR5   0x3B5
+#define CSR_PMPADDR6   0x3B6
+#define CSR_PMPADDR7   0x3B7
+#define CSR_PMPADDR8   0x3B8
+#define CSR_PMPADDR9   0x3B9
+#define CSR_PMPADDR10  0x3BA
+#define CSR_PMPADDR11  0x3BB
+#define CSR_PMPADDR12  0x3BC
+#define CSR_PMPADDR13  0x3BD
+#define CSR_PMPADDR14  0x3BE
+#define CSR_PMPADDR15  0x3BF
 #define CSR_MTIME    0x701
 #define CSR_MTIMECMP 0x741
+#define CSR_RDCYCLE   0xC00 //cycle - 记录从系统启动或复位以来经过的 CPU 周期数
 #define CSR_TIME     0xC01 //time - 实际是cycle计数器的别名,记录从系统启动或复位以来经过的"时间单位
 #define CSR_INSTRET  0xC02 //instret - 指令退休计数器 
 
 #define CSR_MENVCFG 0x30A // 配置机器模式下的环境相关特性
 
-#define CSR_PMPADDRO 0x3B0
 #define CSR_PMPCFG0  0x3A0 // pmp0-7
 #define CSR_PMPCFG1  0x3A1 // pmp8-15
 
@@ -130,6 +150,14 @@
 
 //TLB 
 #define TLB_SIZE 64
+
+typedef enum {
+    PAGE_4KB,
+    PAGE_2MB,
+    PAGE_1GB
+} PageSize;
+
+
 
 // 内存顺序标记
 typedef enum {

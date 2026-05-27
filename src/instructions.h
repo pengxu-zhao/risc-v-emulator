@@ -60,4 +60,5 @@ void exec_remu(CPU_State *cpu,uint32_t instr);
 void exec_divu(CPU_State *cpu,uint32_t instr);
 void exec_xori(CPU_State* cpu,uint32_t instr);
 void exec_sret(CPU_State *cpu,uint32_t instr);
+void exec_sll(CPU_State *cpu,uint32_t instr);
 #endif // INSTRUCTIONS_H

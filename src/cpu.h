@@ -43,6 +43,7 @@ typedef struct {
     bool     global;       // 是否是全局页（忽略ASID）
     uint8_t  asid;         // 地址空间ID（0-255）
     uint64_t last_used;    // LRU计数器
+    PageSize page_size;     // 页大小（4KB/2MB/1GB）
     
 } TLBEntry;
 
@@ -138,6 +139,8 @@ typedef struct {
         uint64_t vaddr;
     }mem_fault;
 
+    uint64_t reserv_addr;   // 保留的物理地址
+    bool     reserv_valid;  // 该保留是否有效
 
 } CPU_State;
 

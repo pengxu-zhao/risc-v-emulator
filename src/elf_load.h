@@ -9,4 +9,5 @@ int load_elf32_bare(const char *path, uint8_t *mem, size_t mem_size, uint32_t me
 void load_elf32_virt(CPU_State* cpu,const char *filename, uint32_t *entry_point);
 
 int load_elf64_SBI(const char *filename, uint64_t *entry_point) ;
+int load_dtb(const char *path, uint64_t load_addr);
 #endif

@@ -16,6 +16,8 @@
 #include "virtio_blk.h"
 #include "clint.h"
 #include "trap.h"
+#include "bootloader.h"
+#include "cache.h"
 
 // x1: returen address
 // x2: stack pointer
@@ -38,7 +40,7 @@ int log_enable = 0;
 
 int j,m = 0;
 
-
+extern cache_t *L1,*L2,*L3;
 
 static uint64_t get_real_time_us() {
     struct timeval tv;
@@ -46,15 +48,17 @@ static uint64_t get_real_time_us() {
     return (uint64_t)tv.tv_sec * 1000000 + tv.tv_usec;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
     printf("Initializing RISC-V emulator...\n");
     printf("Memory size: %ld GB, Base address: 0x%08x\n", 
            MEMORY_SIZE / (1024 * 1024 * 1024), MEMORY_BASE);
     
     init_memory();
-
-
+    init_cache();
+    printf("cache_t:line_size:%d sets:%d ways:%d\n", L1->line_size, L1->sets, L1->ways);
+    printf("cache_t:line_size:%d sets:%d ways:%d\n", L2->line_size, L2->sets, L2->ways);
+    printf("cache_t:line_size:%d sets:%d ways:%d\n", L3->line_size, L3->sets, L3->ways);
     // 初始化CPU
     printf("Initializing CPU...\n");
 
@@ -71,14 +75,21 @@ int main() {
     ram.pending.store_ops = malloc(ram.pending.store_capacity * 
                                    sizeof(*ram.pending.store_ops));
     ram.pending.store_count = 0;
-
+    bus.cache_enabled = 0; // 启用总线缓存
+ //load xv6
+ /*
     uint64_t entry_addr;
     if(load_elf64_SBI("kernel",&entry_addr) < 0){
         printf("load openSBI error\n");
     }else{
         printf("entry addr:0x%08lx\n",entry_addr);
-    }
+    } */
 
+
+    load_bin("fw_jump.bin", SBI_LOAD_ADDR);
+    load_bin("Image", IMAGE_LOAD_ADDR);
+    load_dtb("v1.dtb",DTB_LOAD_ADDR);
+            
     virtio_blk_init("fs.img");
     printf("=====init driveraddr:0x%16lx\n",dev.avail_ring);
 
@@ -130,7 +141,7 @@ int main() {
         printf("Starting RISC-V emulator...cpu privilege: %d\n",cpu[i].privilege);
         printf("Only cpu 0\n");
      
-        cpu[i].pc = entry_addr;
+        cpu[i].pc = SBI_LOAD_ADDR;
         printf("pc[%d]:0x%08lx\n",i,cpu[i].pc);
             
             
@@ -151,21 +162,23 @@ int main() {
         //429899252 ready to call wait()
         //431817210  0x74
         //for( ;j <= 431961669; j++)
-        while (1)
+        //2909990 _start_kerenl
+        //3043044 
+        for( ;j <= 3043144; j++)
         { 
-           
-            j++;
-            if(cpu[0].pc == 0x80001d98 && j > 431961660){
-                m = j;
-                printf("j:%d,cycle:%d,pc:0x%08lx\n",j,m,cpu->pc  );
-            }
-
-            if(j > m && j < m + 10){
+            if(j > 3043114)
                 log_enable = 1;
-            }else{
-                log_enable = 0;
+        
+        
+            uint32_t stop_addr = 0xFFFFFFFF;
+            if(argc > 1){
+                stop_addr = strtoul(argv[1], NULL, 16);
             }
-           
+        
+            if(stop_addr == cpu[0].pc - MEMORY_BASE){
+                printf("stop at pc:0x%08lx,j:%ld\n",stop_addr + MEMORY_BASE,j);
+                break;
+            }
 
             if(cpu[0].running == false){
                 break;
@@ -205,25 +218,23 @@ int main() {
         printf("sstatus:0x%08lx\n",cpu[0].csr[CSR_SSTATUS]);
         printf("sip:0x%08lx\n",cpu[0].csr[CSR_SIP]);
 
-        uint32_t val1 = 0;
-        uint32_t val2 = 0;
 
-        val1 = bus_read(&bus,0x87f55028,8);
-        val2 = bus_read(&bus,0x87f56028,8);
-        printf("[0x87f55028] :0x%lx\n",val1);
-        printf("[0x87f56028] :0x%lx\n",val2);    
-
-        uint64_t pa1 = get_pa(&cpu[0],0x3ffffff000,ACC_LOAD);
-        uint32_t pa2 = get_pa(&cpu[0],0x3fffffe000,ACC_LOAD);
-        printf("pa1:0x%08lx,pa2:0x%08lx\n",pa1,pa2);
-
+      
         uint64_t pa = 0x8001a000; // VA 0 的物理地址
         for(int i=0; i<0x400; i+=16) {
-            uint64_t val = bus_read(&bus, pa + i, 8);
+         //  uint64_t val = bus_read(&bus, pa + i, 8);
            // printf("0x%08lx: 0x%016lx\n", pa + i, val);
         }
 
-        
+        for(int i=0; i < 8;i++){
+            uint64_t val1 = bus_read(&bus, 0x8700006c + i, 8);
+           // printf("0x%08lx: 0x%016lx\n", 0x8700006c + i, val1);
+        }
+
+        for(int i=0; i < 8;i++){
+            uint64_t val2 = bus_read(&bus, 0x8002c700 + i, 8);
+           // printf("0x%08lx: 0x%016lx\n", 0x8002c700 + i, val2);
+        }
 
     }
     

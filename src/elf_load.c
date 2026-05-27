@@ -1,6 +1,6 @@
 // elf_loader.c  -- RV32 ELF loader (minimal, synchronous)
 #include "elf_load.h"
-
+extern Bus bus;
 extern uint8_t* memory;
 /*
  * load_elf32:
@@ -444,6 +444,38 @@ int load_elf64_SBI(const char *filename, uint64_t *entry_point) {
 
     fclose(f);
     return segments_loaded;
+}
+
+
+int load_dtb(const char *path, uint64_t load_addr)
+{
+    FILE *fp = fopen(path, "rb");
+    if (!fp) {
+        printf("[DTB] cannot open file: %s\n", path);
+        return -1;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    if (size <= 0) {
+        printf("[DTB] invalid size\n");
+        fclose(fp);
+        return -1;
+    }
+
+    printf("[DTB] loading size=%ld to 0x%lx\n", size, load_addr);
+
+    for (long i = 0; i < size; i++) {
+        int c = fgetc(fp);
+        if (c == EOF) break;
+        bus_write(&bus, load_addr + i, (uint8_t)c,1);
+    }
+    
+    fclose(fp);
+
+    return 0;
 }
 
 /* Example main: 测试用 */

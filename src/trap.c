@@ -36,9 +36,7 @@ static void take_smode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
     uint64_t scause = is_interrupt ? (1ULL << 63) | (cause & 0x7fffffff) 
                                    : (cause & 0x7fffffff);
 
-    write_csr(cpu,CSR_SCAUSE,scause);
-
-    write_csr(cpu,CSR_STVAL,0);
+    write_csr(cpu,CSR_SCAUSE,scause);        
 
     uint64_t sstatus = read_csr(cpu,CSR_SSTATUS);
 

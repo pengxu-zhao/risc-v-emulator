@@ -15,6 +15,8 @@ set(SOURCES
     dts.c
     plic.c
     virtio_blk.c
+    bootloader.c
+    cache.c
 
     # 其他源文件可以继续添加
 )

@@ -125,6 +125,7 @@ static void handle_opcode(CPU_State* cpu,uint32_t instruction){
 void init_r_type_instruction(){
 
     r_type_instruction[0x00 | 0x0] = exec_add;
+    r_type_instruction[0x00 | 0x1] = exec_sll;
     r_type_instruction[0x00 | 0x6 ] = exec_or;
     r_type_instruction[0x00 | 0x7] = exec_and;
     r_type_instruction[0x20 << 3 | 0x0] = exec_sub;
@@ -188,8 +189,12 @@ uint32_t fetch_instruction(CPU_State* cpu, uint8_t* memory) {
     uint64_t va = cpu->pc;
 
     pa = get_pa(cpu,va,ACC_FETCH);
-  
-    
+
+    if(pa == 0){
+        printf("fetch instruction failed: va:0x%016lx\n",va);
+        return 0;
+    }
+
     uint16_t instr = memory_read(cpu->mem,pa,2) & 0xFFFF;
 
     if((instr & 0x3) == 0x3){
