@@ -12,4 +12,6 @@ void init_page_table(CPU_State *cpu);
 uint64_t phys_read_u32(CPU_State *cpu, uint64_t pa);
 void phys_write_u32(CPU_State *cpu, uint64_t pa, uint64_t v);
 uint64_t get_pa(CPU_State *cpu,uint64_t vaddr,int acc_type);
+void take_mmode_fault(CPU_State *cpu, uint64_t cause, bool is_interrupt);
+void take_smode_fault(CPU_State *cpu, uint64_t cause, bool is_interrupt);
 #endif

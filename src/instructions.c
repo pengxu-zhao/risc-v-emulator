@@ -66,8 +66,8 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
                             ((instr >> 5) & 0x1) << 6;
         
             uint64_t addr = cpu->gpr[rs1] + imm8;
-            
             uint64_t pa = get_pa(cpu,addr,ACC_LOAD);
+   
             if(rd != 0){
                  
                 cpu->gpr[rd] = (int64_t)(int32_t)bus_read(&cpu->bus,pa,4);
@@ -128,8 +128,9 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
         uint64_t pa = get_pa(cpu,vaddr,ACC_LOAD);
         
         val = bus_read(&cpu->bus,pa,8);
-        
-        cpu->gpr[rd] = val;
+        if(rd != 0){
+            cpu->gpr[rd] = val;
+        }
         cpu->pc += 2;
         if(log_enable){
             fprintf(stderr,"[c.ld] vaddr:0x%16lx\n",vaddr);
@@ -180,14 +181,14 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
         uint8_t rd = (instr >> 7) & 0x1F;
 
         if(rd != 0){ //c.addiw
+                    
+            
             uint32_t imm6 = ((instr >> 12) & 0x1) << 5 |
                             ((instr >> 2) & 0x1F);
             int32_t imm = ((int32_t)imm6 << 26) >>26;
-            if(log_enable){
-            fprintf(stderr,"[before c.addiw] x[%d]:0x%16lx,imm:0x%08x\n",rd,cpu->gpr[rd],imm);
-            }
-            int64_t result = (int64_t)((int64_t)cpu->gpr[rd] + imm);
-            cpu->gpr[rd] = result;
+  
+            int32_t result = (int32_t)( (int32_t)(cpu->gpr[rd] & 0xFFFFFFFF) + imm);
+            cpu->gpr[rd] =(int64_t)result;
             cpu->pc += 2;
             if(log_enable){
             fprintf(stderr,"[c.addiw] x[%d]:0x%16lx,imm:0x%08x\n",rd,cpu->gpr[rd],imm);
@@ -323,25 +324,46 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
                 }
 
                 cpu->pc += 2;
-            }else if(funct2_56 == 0b00){ //c.sub
-                cpu->gpr[rd] -= cpu->gpr[rs2];
-                cpu->pc += 2;
-                if(log_enable){
-                    fprintf(stderr,"[c.sub] x[rd:%d]:0x%08lx,x[rs2:%d]:0x%08lx\n",rd,
-                        cpu->gpr[rd],rs2,cpu->gpr[rs2]);
-                }
-            }else if(funct2_56 == 0b01){ //c.addw
-            if(log_enable){
-                    fprintf(stderr,"[before c.addw] x[%d]:0x%16lx , x[%d]:0x%16lx\n",
-                        rd,cpu->gpr[rd],rs2,cpu->gpr[rs2]);
-                }
+            }else if(funct2_56 == 0b00){ 
+                uint8_t bit12 = (instr >> 12) & 0x1;
+                printf("bit12:%d\n",bit12);
+                if(bit12 == 0){ //c.sub
 
-                int32_t sum = (int32_t)cpu->gpr[rd] + (int32_t)cpu->gpr[rs2];
-                cpu->gpr[rd] = (int32_t)sum;
-                cpu->pc += 2;
-                if(log_enable){
-                    fprintf(stderr,"[c.addw] x[%d]:0x%16lx = x[%d]:0x%16lx + x[%d]:0x%16lx\n",
-                        rd,cpu->gpr[rd],rd,cpu->gpr[rd],rs2,cpu->gpr[rs2]);
+                    cpu->gpr[rd] -= cpu->gpr[rs2];
+                    cpu->pc += 2;
+                    if(log_enable){
+                        fprintf(stderr,"[c.sub] x[rd:%d]:0x%08lx,x[rs2:%d]:0x%08lx\n",rd,
+                            cpu->gpr[rd],rs2,cpu->gpr[rs2]);
+                    }
+                }else{ //c.subw
+                    int32_t diff = (int32_t)cpu->gpr[rd] - (int32_t)cpu->gpr[rs2];
+                    cpu->gpr[rd] = (int64_t)diff;
+                    cpu->pc += 2;
+                    if(log_enable){
+                        fprintf(stderr,"[c.subw] x[rd:%d]:0x%08lx,x[rs2:%d]:0x%08lx\n",rd,
+                            cpu->gpr[rd],rs2,cpu->gpr[rs2]);
+                    }
+                }
+            }else if(funct2_56 == 0b01){ 
+                uint8_t bit12 = (instr >> 12) & 0x1;
+                if(bit12 == 1){//c.addw
+
+                    int32_t sum = (int32_t)cpu->gpr[rd] + (int32_t)cpu->gpr[rs2];
+                    cpu->gpr[rd] = (int32_t)sum;
+                    cpu->pc += 2;
+                    if(log_enable){
+                        fprintf(stderr,"[c.addw] x[%d]:0x%16lx = x[%d]:0x%16lx + x[%d]:0x%16lx\n",
+                            rd,cpu->gpr[rd],rd,cpu->gpr[rd],rs2,cpu->gpr[rs2]);
+                    }
+                }else{//c.xor
+                    if(rd != 0){
+                        cpu->gpr[rd] ^= cpu->gpr[rs2];
+                    }
+                    cpu->pc += 2;
+                    if(log_enable){
+                        fprintf(stderr,"[c.xor] x[%d]:0x%16lx ^= x[%d]:0x%16lx\n",
+                            rd,cpu->gpr[rd],rs2,cpu->gpr[rs2]);
+                    }
                 }
             }
         }
@@ -447,7 +469,7 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         uint64_t addr = cpu->gpr[2] + imm;
         uint64_t pa = get_pa(cpu,addr,ACC_STORE);
         if(rd != 0){
-            cpu->gpr[rd] = bus_read(&cpu->bus,pa,4);
+            cpu->gpr[rd] =(int64_t)((int32_t)bus_read(&cpu->bus,pa,4));
         }
         if(log_enable){
             fprintf(stderr,"[c.lwsp]imm:0x%08x,pa:0x%08x,ra:0x%08x\n",imm,pa,cpu->gpr[rd]);
@@ -461,12 +483,8 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
                         ((instr >> 5) & 0x3) << 3 |
                         ((instr >> 12) & 0x1) << 5;
         uint64_t imm = (uint64_t)(uint32_t)imm6;
-        if(log_enable){
-            printf("[before c.ldsp]x[2]:0x%16lx ,imm:0x%16lx\n",cpu->gpr[2],imm);
-        }
-
         uint64_t vaddr = cpu->gpr[2] + imm;
-        int64_t val = 0;
+        uint64_t val = 0;
 
         uint64_t pa = get_pa(cpu,vaddr,ACC_LOAD);
      
@@ -636,12 +654,13 @@ void exec_lui(CPU_State* cpu, uint32_t instruction) {
     */
     uint8_t rd = (instruction >> 7) & 0x1F;
     uint32_t imm20 = (instruction  & 0xFFFFF000);
-    int32_t imm = (int32_t)imm20;
+    int64_t imm = (int64_t)((int32_t)imm20);
 
     if (rd != 0) {
         cpu->gpr[rd] = imm;
     }
     if(log_enable){
+        fprintf(stderr,"[lui] imm sign-extended to 64,write to rd\n");
     fprintf(stderr,"[lui] x[%d] = imm:0x%16lx\n",rd,cpu->gpr[rd]);
     }
 
@@ -968,7 +987,7 @@ void exec_mul(CPU_State* cpu,uint32_t instruction){
     uint8_t rs2 = (instruction >> 20) & 0x1F;
     
     if(rd != 0){
-        cpu->gpr[rd] = (cpu->gpr[rs1] * cpu->gpr[rs2]) & 0XFFFFFFFF;
+        cpu->gpr[rd] = (cpu->gpr[rs1] * cpu->gpr[rs2]);
     }
     cpu->pc += 4;
 }
@@ -1068,7 +1087,9 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
         break;
     case 0x2://SW
         cpu_store32_pa(cpu, pa, value & 0xFFFFFFFF);
-        if(pa == 0x8001a394){
+        if(pa == 0x80001000){
+            if(value == 1)
+                cpu->running = false;
             printf("occur sw to 0x%08lx,value:0x%16lx\n",pa,value);
         }
 
@@ -1079,15 +1100,15 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
 
     case 0b11://SD
     {
-        if(log_enable){
-            printf("[exec_sd] x[%d]:0x%16lx\n",
-               rs2,cpu->gpr[rs2] );
-        }
      
         cpu_store64_pa(cpu, pa, (uint64_t)value);
+
+        uint64_t v = bus_read(&cpu->bus,pa,8);
+
         if(log_enable){
-        fprintf(stderr,"[sd store 8bytes] x[%d]:0x%16lx,x[%d]:0x%16lx,imm:0x%16lx\n",
-                rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],imm);
+            fprintf(stderr,"read back value:0x%16lx\n",v);
+        fprintf(stderr,"[sd store 8bytes]sd value x[%d]:0x%16lx to addr x[%d]:0x%16lx+imm:0x%16lx\n",
+                rs2,cpu->gpr[rs2],rs1,cpu->gpr[rs1],imm);
         fprintf(stderr,"[sd 8 bytes] pa:0x%08lx\n",pa);
         }
         break;
@@ -1110,14 +1131,25 @@ void exec_ecall(CPU_State* cpu, uint32_t instruction) {
  
     uint32_t cause = (cpu->privilege == 0 ? EXC_ECALL_U :
                     cpu->privilege == 1 ? EXC_ECALL_S : EXC_ECALL_M);
-    /* 简单模式：在 emulator 中直接处理 syscall（host 接管），或把异常交给 guest */
+
+    cpu->mem_fault.vaddr = cpu->pc; //记录发生 ECALL 时的 PC 作为 faulting address
+    if(log_enable){
+        fprintf(stderr,"[ECALL] from privilege level %d, cause: %d,faulting address: 0x%016lx\n", cpu->privilege, cause, cpu->mem_fault.vaddr);
+        fprintf(stderr,"[ECALL] mtvec:0x%016lx\n", cpu->csr[CSR_MTVEC]);
+    }
+
+    if(cpu->privilege != 3 && cpu->csr[CSR_MEDELEG] & (1 << cause)){
+        // 如果当前特权级别不是 M 模式，并且 medeleg 中对应位被设置，说明这个异常应该委托给 S 模式处理
+        take_smode_fault(cpu,cause,false);
+    }else{
+         // 否则由 M 模式处理
+         take_mmode_fault(cpu,cause,false);
+    }
     
-    //printf("[ECALL] from privilege level %d, cause: %d\n", cpu->privilege, cause);
-    take_trap(cpu, cause, false);
+  
    // fprintf(stderr,"exec_ecall cpu->pc:0x%08x\n",cpu->pc);
    // fprintf(stderr,"after take trap:%u\n",cpu->csr[CSR_MCAUSE]);
-    
-    //cpu->pc += 4;   
+
 }
 
 //ebreak
@@ -1262,22 +1294,22 @@ static void load_lh(CPU_State* cpu,uint64_t addr,uint8_t rd){
 }
 
 static void load_lbu(CPU_State* cpu,uint64_t addr,uint8_t rd){
-    uint32_t val = 0;
-    val = (uint32_t)bus_read(&cpu->bus,addr,1);
+    uint64_t val = 0;
+    val = (uint64_t)(uint32_t)bus_read(&cpu->bus,addr,1);
  
     if(rd != 0){
         cpu->gpr[rd] = val; 
     }
     if(log_enable){
+        fprintf(stderr,"[lbu] load 1 byte ,zerp-extend to 64 bits,write to rd\n");
         fprintf(stderr,"[lbu] x[%d]:0x%16lx,val:0x%16lx,addr:0x%08lx\n",rd,cpu->gpr[rd],val,addr);
     }
 }
 
 static void load_lw(CPU_State* cpu,uint64_t addr,uint8_t rd){
-    uint64_t val = 0;
+    int64_t val = 0;
 
-
-    val = (uint32_t)bus_read(&cpu->bus,addr,4);
+    val = (int64_t)(int32_t)bus_read(&cpu->bus,addr,4);
     if(rd != 0){
         cpu->gpr[rd] = val;
     }
@@ -1357,7 +1389,6 @@ void exec_load(CPU_State *cpu,uint32_t instruction){
         if(log_enable){
         fprintf(stderr,"[ld load 8 bytes] x[%d]:0x%16lx,addr:0x%16lx\n",rd,
         cpu->gpr[rd],addr);
-        fprintf(stderr,"[ld] rs1:%d,0x%16lx\n",rs1,cpu->gpr[rs1]);
         }
         break;
     }
@@ -1593,7 +1624,9 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
             }
             
             if(log_enable){
-            fprintf(stderr,"[csrrw] x[rd:%d]:0x%16lx,x[rs1:%d]:0x%16lx,csr[0x%08x]:0x%16lx\n",
+                fprintf(stderr,"rd = csr old value,csr = rs1\n");
+
+                fprintf(stderr,"[csrrw] x[rd:%d]:0x%16lx,x[rs1:%d]:0x%16lx,csr[0x%08x]:0x%16lx\n",
                         rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],csr,cpu->csr[csr]);
             }
          
@@ -1607,6 +1640,7 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
                 cpu->csr[csr] |= cpu->gpr[rs1];
             }
             if(log_enable){
+                fprintf(stderr," rd = csr old value,csr |= rs1\n");
             fprintf(stderr,"[csrrs] x[rd:%d]:0x%16lx,csr[0x%08x] |= x[rs1:%d]:0x%16lx,val = 0x%16lx\n ",
                             rd,cpu->gpr[rd],csr,rs1,cpu->gpr[rs1],cpu->csr[csr]);
             }
@@ -1618,6 +1652,7 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
             }
             cpu->csr[csr] &= ~cpu->gpr[rs1];
             if(log_enable){
+                fprintf(stderr," rd = csr old value,csr &= ~rs1\n");
             fprintf(stderr,"[csrrc] x[%d]:0x%16lx,csr[0x%08x] |= x[%d]:0x%16lx,val = 0x%16lx\n ",
                             rd,cpu->gpr[rd],csr,rs1,cpu->gpr[rs1],cpu->csr[csr]);
             }
@@ -1732,6 +1767,25 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
     if(funct3 == 0b010){ // .w
         switch (funct7)
         {
+        case 0b100://amoxor.w
+        {   
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+            
+            old_val = bus_read(&cpu->bus,addr,4); 
+            val ^= old_val;
+            bus_write(&cpu->bus,addr,val,4);
+            if(rd != 0){
+                cpu->gpr[rd] = (int64_t)((int32_t)old_val);
+            }
+            cpu->pc += 4;
+            if(log_enable){
+                fprintf(stderr,"[AMOXOR.W] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx,old_val:0x%08x\n",
+                        rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],(uint32_t)old_val);
+            }
+            break;
+        }
+        
         case 0b00001: //AMOSWAP.W
             {   
                 if(cpu->gpr[rs1] % 4 != 0){
@@ -1748,7 +1802,7 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
                   */
                 uint32_t tmp = bus_read(&cpu->bus,addr,4);
                 bus_write(&cpu->bus,addr,cpu->gpr[rs2],4);
-                write_gpr(cpu,rd,tmp);
+                write_gpr(cpu,rd,(int64_t)(int32_t)tmp);
                 
 
                 cpu->pc += 4;
@@ -1772,14 +1826,160 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
                 cpu->gpr[rd] = (int64_t)((int32_t)old_val);
             }
             cpu->pc += 4;
+            break;
         }
+        case 0b00010: //lr.w
+        {
+            uint64_t val = bus_read(&cpu->bus,addr,4);
+            if(rd != 0){
+                cpu->gpr[rd] = (int64_t)((int32_t)val);
+            }
+            cpu->reserv_addr = addr;
+            cpu->reserv_valid = true;
+            cpu->pc += 4;
+            if(log_enable){
+                fprintf(stderr,"[LR.W] x[%d]:0x%16lx,addr:0x%16lx\n",rd,cpu->gpr[rd],addr);
+            }
+            break;
+        }
+        case 0b00011: //sc.w
+        {
+            if(!cpu->reserv_valid || cpu->reserv_addr != addr){
+                if(rd != 0){
+                    cpu->gpr[rd] = 1; // sc失败，rd写1
+                }
+            }else{
+                bus_write(&cpu->bus,addr,cpu->gpr[rs2],4);
+                if(rd != 0){
+                    cpu->gpr[rd] = 0; // sc成功，rd写0
+                }
+            }
+            cpu->reserv_valid = false;
+            cpu->pc += 4;
+            if(log_enable){
+                fprintf(stderr,"[SC.W] x[%d]:0x%16lx,addr:0x%16lx\n",rd,cpu->gpr[rd],addr);
+            }
+            break;
+        }case 0b01000://amoor.w
+        {
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+            
+            old_val = bus_read(&cpu->bus,addr,4); 
+            val |= old_val;
+            bus_write(&cpu->bus,addr,val,4);
+            if(rd != 0){
+                cpu->gpr[rd] = (int64_t)((int32_t)old_val);
+            }
+            cpu->pc += 4;
+            if(log_enable){
+                fprintf(stderr,"[AMOOR.W] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx,old_val:0x%08x\n",
+                        rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],(uint32_t)old_val);
+            }
+            break;
+        }
+        case 0b01100://amoand.w
+        {
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+            
+            old_val = bus_read(&cpu->bus,addr,4); 
+            val &= old_val;
+            bus_write(&cpu->bus,addr,val,4);
+            if(rd != 0){
+                cpu->gpr[rd] = (int64_t)((int32_t)old_val);
+            }
+            cpu->pc += 4;
+            if(log_enable){
+                fprintf(stderr,"[AMOAND.W] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx,old_val:0x%08x\n",
+                        rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],(uint32_t)old_val);
+            }
+            break;
+        }case 0b10100://amomax.w
+        {
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+            
+            old_val = bus_read(&cpu->bus,addr,4); 
+            val = (int32_t)old_val > (int32_t)val ? old_val : val;
+            bus_write(&cpu->bus,addr,val,4);
+            if(rd != 0){
+                cpu->gpr[rd] = (int64_t)((int32_t)old_val);
+            }
+            cpu->pc += 4;
+            break;   
+        }case 0b11100: //amomaxu.w
+        {
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+            
+            old_val = bus_read(&cpu->bus,addr,4); 
+            val = (uint32_t)old_val > (uint32_t)val ? old_val : val;
+            bus_write(&cpu->bus,addr,val,4);
+            if(rd != 0){
+                cpu->gpr[rd] = (int64_t)((int32_t)old_val);
+            }
+            cpu->pc += 4;
+            break;   
+        }case 0b10000://amomin.w
+        {
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+            
+            old_val = bus_read(&cpu->bus,addr,4); 
+            val = (int32_t)old_val < (int32_t)val ? old_val : val;
+            bus_write(&cpu->bus,addr,val,4);
+            if(rd != 0){
+                cpu->gpr[rd] = (int64_t)((int32_t)old_val);
+            }
+            cpu->pc += 4;
+            break;
+        }case 0b11000: //amominu.w
+        {
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+            
+            old_val = bus_read(&cpu->bus,addr,4); 
+            val = (uint32_t)old_val < (uint32_t)val ? old_val : val;
+            bus_write(&cpu->bus,addr,val,4);
+            if(rd != 0){
+                cpu->gpr[rd] = (int64_t)((int32_t)old_val);
+            }
+            cpu->pc += 4;
+            break;
+        }
+ 
         default:
             break;
         }
     }else if(funct3 == 0b011){//.D
         switch (funct7)
         {
-        case 0b00001: //AMOSWAP.D
+            case 0b100://amoxor.d
+            {   
+                if(cpu->gpr[rs1] % 8 != 0){
+                    fprintf(stderr,"addr error\n");
+                    cpu->halted = true;
+                    return;
+                }
+                uint64_t val = cpu->gpr[rs2];
+                uint64_t old_val = 0;
+                
+                old_val = bus_read(&cpu->bus,addr,8); 
+                val ^= old_val;
+                bus_write(&cpu->bus,addr,val,8);
+                if(rd != 0){
+                    cpu->gpr[rd] = old_val;
+                }
+                cpu->pc += 4;
+                if(log_enable){
+                    fprintf(stderr,"[AMOXOR.D] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx,old_val:0x%16lx\n",
+                            rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],old_val);
+                }
+                break;
+            }
+
+            case 0b00001: //AMOSWAP.D
             {   
                 if(cpu->gpr[rs1] % 8 != 0){
                     fprintf(stderr,"addr error\n");
@@ -1845,6 +2045,101 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
             if(log_enable){
                 fprintf(stderr,"[SC.D] x[%d]:0x%16lx,addr:0x%16lx\n",rd,cpu->gpr[rd],addr);
             }
+            break;
+        }
+        case 0b01000: //amoor.d
+        {
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+            
+            old_val = bus_read(&cpu->bus,addr,8); 
+            val |= old_val;
+            bus_write(&cpu->bus,addr,val,8);
+            if(rd != 0){
+                cpu->gpr[rd] = old_val;
+            }
+            cpu->pc += 4;
+            break;
+        }
+        case 0b01100: //amoand.d
+        {
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+            
+            old_val = bus_read(&cpu->bus,addr,8); 
+            val &= old_val;
+            bus_write(&cpu->bus,addr,val,8);
+            if(rd != 0){
+                cpu->gpr[rd] = old_val;
+            }
+            cpu->pc += 4;
+            if(log_enable){
+                fprintf(stderr,"[AMOAND.D] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx,old_val:0x%16lx\n",
+                        rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],old_val);
+            }
+            break;
+        }
+        case 0b10100://amomax.d
+        {
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+            
+            old_val = bus_read(&cpu->bus,addr,8); 
+            val = (int64_t)old_val > (int64_t)val ? old_val : val;
+            bus_write(&cpu->bus,addr,val,8);
+            if(rd != 0){
+                cpu->gpr[rd] = old_val;
+            }
+            cpu->pc += 4;
+            break;
+        }case 0b11100: //amomaxu.d
+        {
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+
+
+            if (addr & 0x7) {
+            // 触发存储地址未对齐异常（AMO 视为 store）
+            cpu->mcause = 6;       // Store address misaligned
+            return;
+            }
+            old_val = bus_read(&cpu->bus,addr,8); 
+            val = (uint64_t)old_val > (uint64_t)val ? old_val : val;
+            bus_write(&cpu->bus,addr,val,8);
+            if(rd != 0){
+                cpu->gpr[rd] = old_val;
+            }
+            cpu->pc += 4;
+            if(log_enable){
+                fprintf(stderr,"[AMOMAXU.D] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx,old_val:0x%16lx\n",
+                        rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],old_val);
+            }
+            break;
+        }case 0b10000://amomin.d
+        {
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+            
+            old_val = bus_read(&cpu->bus,addr,8); 
+            val = (int64_t)old_val < (int64_t)val ? old_val : val;
+            bus_write(&cpu->bus,addr,val,8);
+            if(rd != 0){
+                cpu->gpr[rd] = old_val;
+            }
+            cpu->pc += 4;
+            break;
+        }case 0b11000: //amominu.d
+        {   
+            uint64_t val = cpu->gpr[rs2];
+            uint64_t old_val = 0;
+            
+            old_val = bus_read(&cpu->bus,addr,8); 
+            val = (uint64_t)old_val < (uint64_t)val ? old_val : val;
+            bus_write(&cpu->bus,addr,val,8);
+            if(rd != 0){
+                cpu->gpr[rd] = old_val;
+            }
+            cpu->pc += 4;
             break;
         }
         default:
@@ -1990,6 +2285,31 @@ void exec_wfi(CPU_State* cpu,uint32_t instr){
     pthread_mutex_unlock(&cpu->lock);
     
 }
+void exec_rem(CPU_State *cpu,uint32_t instr){ 
+    uint64_t rs1 = (instr >> 15) & 0x1F;
+    uint64_t rs2 = (instr >> 20) & 0x1F;
+    uint64_t rd = (instr >> 7) & 0x1F;
+
+    int64_t dividend = (int64_t)cpu->gpr[rs1];
+    int64_t divisor  = (int64_t)cpu->gpr[rs2];
+    int64_t remainder;
+
+    if (divisor == 0) {
+        remainder = dividend;
+    } else if (dividend == INT64_MIN && divisor == -1) {
+        remainder = 0;
+    } else {
+        remainder = dividend % divisor;
+    }
+
+    cpu->gpr[rd] = (uint64_t)remainder;
+    if(log_enable){
+        fprintf(stderr,"[rem] divided(rs1:%d):0x%16lx divisor(rs2:%d):0x%16lx,val(rd:%d):0x%16lx\n",
+            rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],rd,cpu->gpr[rd]);
+    }
+     cpu->pc += 4;
+
+}
 
 void exec_3b(CPU_State* cpu,uint32_t instr){
     uint8_t funct7 = (instr >> 25) & 0x7F;
@@ -2003,34 +2323,63 @@ void exec_3b(CPU_State* cpu,uint32_t instr){
         uint32_t shamt = (cpu->gpr[rs2] & 0x1F);
         int32_t imm = data << shamt;
 
-        cpu->gpr[rd] = (int64_t)imm;
+        if(rd != 0){
+            cpu->gpr[rd] = (int64_t)imm;
+        }
         cpu->pc += 4;
         if(log_enable){
         fprintf(stderr,"[sllw] x[%d]:0x%08lx,x[%d]:0x%08lx,imm:0x%16x\n",
                rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],imm);
         }
-    }else if(funct7 == 1 && funct3 == 7 ){//0b111 //remuw
+    }
+    else if(funct7 == 1 && funct3 == 7 ){//0b111 //remuw
         uint32_t divided = (uint32_t)(cpu->gpr[rs1]);
         uint32_t divisor = (uint32_t)(cpu->gpr[rs2]);
         uint32_t value = 0;
+        //remuw的被除数和除数都是无符号数，结果也是无符号数
+        if(divisor == 0){
+            value = divided;
+        }else{  
+            value = divided % divisor;
+        }
+        int64_t result = (int64_t)(int32_t)value;
+        if(rd != 0){
+            cpu->gpr[rd] = result;
+        }
+        cpu->pc += 4;
+        if(log_enable){
+            fprintf(stderr,"[remuw] divided(rs1:%d):0x%08lx divisor(rs2:%d):0x%08lx,val(rd:%d):0x%08lx\n",
+                rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],rd,result);
+        }
+
+        
+    }else if(funct7 == 1 && funct3 == 0b110){ //remw
+        int32_t divided = (int32_t)(cpu->gpr[rs1] & 0xFFFFFFFF);
+        int32_t divisor = (int32_t)(cpu->gpr[rs2] & 0xFFFFFFFF);
+        int32_t value = 0;
 
         if(divisor == 0){
             value = divided;
-        }else{
-            value = (divided % divisor);
+        }else if(divided == (int32_t)0x80000000 && divisor == -1){
+            value = 0;
+        }
+        else{
+            value = divided % divisor;
         }
 
-        int64_t  result = (int64_t)(int32_t)value;
+        int64_t result = (int64_t)(int32_t)value;
         if(rd != 0){
             cpu->gpr[rd] = result;
         }
         cpu->pc += 4;
 
         if(log_enable){
-            fprintf(stderr,"[remuw] divided(rs1:%d):0x%08lx divisor(rs2:%d):0x%08lx,val(rd:%d):0x%08lx\n",
+            fprintf(stderr,"[remw] %%,sign-extended \n");
+            fprintf(stderr,"[remw] divided(rs1:%d):0x%08lx divisor(rs2:%d):0x%08lx,val(rd:%d):0x%08lx\n",
                 rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],rd,result);
         }
-    }else if(funct7 == 1 && funct3 == 5){//0b101 //divuw
+    }
+    else if(funct7 == 1 && funct3 == 5){//0b101 //divuw
         uint32_t divided = (uint32_t)(cpu->gpr[rs1]);
         uint32_t divisor = (uint32_t)(cpu->gpr[rs2]);
         uint32_t value = 0;
@@ -2070,6 +2419,10 @@ void exec_3b(CPU_State* cpu,uint32_t instr){
             cpu->gpr[rd] = result;
         }
         cpu->pc += 4;
+        if(log_enable){
+            fprintf(stderr,"[subw] x[%d]:0x%08lx = x[%d]:0x%08lx - x[%d]:0x%08lx\n",
+                    rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
+        }
     }
     else if(funct7 == 0b0000001 && funct3 == 0b000){ //mulw
         int32_t val1 = (int32_t)(cpu->gpr[rs1] & 0xFFFFFFFF);
@@ -2088,8 +2441,57 @@ void exec_3b(CPU_State* cpu,uint32_t instr){
                     rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]);
         }
 
+    }else if(funct7 == 0b0000001 && funct3 == 0b100){ //divw
+        int32_t divided = (int32_t)(cpu->gpr[rs1] & 0xFFFFFFFF);
+        int32_t divisor = (int32_t)(cpu->gpr[rs2] & 0xFFFFFFFF);
+        int32_t value = 0;
 
-    }else{
+        if(divisor == 0){
+            value = 0xFFFFFFFF;
+        }else if(divided == (int32_t)0x80000000 && divisor == -1){
+            value = 0x80000000;
+        }
+        else{
+            value = divided / divisor;
+        }
+
+        int64_t result = (int64_t)(int32_t)value;
+        if(rd != 0){
+            cpu->gpr[rd] = result;
+        }
+        cpu->pc += 4;
+
+        if(log_enable){
+            fprintf(stderr,"[divw] divided(rs1:%d):0x%08lx divisor(rs2:%d):0x%08lx,val(rd:%d):0x%08lx\n",
+                rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],rd,result);
+        }
+    }else if(funct7 == 0b0100000 && funct3 == 0b101){//sraw
+        int32_t data = (int32_t)(cpu->gpr[rs1] & 0xFFFFFFFF);
+        uint32_t shamt = (cpu->gpr[rs2] & 0x1F);
+        int32_t imm = data >> shamt;
+        if(rd != 0){
+            cpu->gpr[rd] = (int64_t)imm;
+        }
+        cpu->pc += 4;
+        if(log_enable){
+        fprintf(stderr,"[sraw] x[%d]:0x%08lx,x[%d]:0x%08lx,imm:0x%16x\n",
+               rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],imm);
+        }
+    }else if(funct7 == 0 && funct3 == 0b101){//srlw  
+        int32_t data = (int32_t)(cpu->gpr[rs1] & 0xFFFFFFFF);
+        uint32_t shamt = (cpu->gpr[rs2] & 0x1F);
+        int32_t imm = (uint32_t)data >> shamt;
+
+        if(rd != 0){
+            cpu->gpr[rd] = (int64_t)imm;
+        }
+        cpu->pc += 4;
+        if(log_enable){
+        fprintf(stderr,"[srlw] x[%d]:0x%08lx,x[%d]:0x%08lx,imm:0x%16x\n",
+               rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],imm);
+        }
+    }
+    else{
         if(log_enable){
             fprintf(stderr,"Unknown 3b instruction at pc:0x%08lx funct7=0x%02x,funct3=0x%01x\n",cpu->pc,funct7,funct3);
         }
@@ -2156,7 +2558,99 @@ void exec_divu(CPU_State *cpu,uint32_t instr){
             rd,cpu->gpr[rd],rs1,cpu->gpr[rs2],rd,cpu->gpr[rs2]
     );
     }
+}
 
+void exec_slt(CPU_State *cpu,uint32_t instr){
+    uint8_t rd = (instr >> 7) & 0x1F;
+    uint8_t rs1 = (instr >> 15) & 0x1F;
+    uint8_t rs2 = (instr >> 20) & 0x1F;
+
+    if(rd != 0){
+        cpu->gpr[rd] = ((int64_t)cpu->gpr[rs1] < (int64_t)cpu->gpr[rs2]) ? 1 : 0;
+    }
+
+    cpu->pc += 4;
+    if(log_enable){
+    fprintf(stderr,"[slt] x[%d]:0x%016lx,x[%d]:0x%016lx,x[%d]:0x%016lx\n",
+            rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]
+    );
+    }
+}
+void exec_mulh(CPU_State *cpu,uint32_t instr){
+    uint8_t rd = (instr >> 7) & 0x1F;
+    uint8_t rs1 = (instr >> 15) & 0x1F;
+    uint8_t rs2 = (instr >> 20) & 0x1F;
+
+    if(rd != 0){
+        int64_t val1 = (int64_t)cpu->gpr[rs1];
+        int64_t val2 = (int64_t)cpu->gpr[rs2];
+        __int128 mul_result = (__int128)val1 * (__int128)val2;
+        cpu->gpr[rd] = (uint64_t)(mul_result >> 64);
+    }
+
+    cpu->pc += 4;
+    if(log_enable){
+    fprintf(stderr,"[mulh] x[%d]:0x%016lx,x[%d]:0x%016lx,x[%d]:0x%016lx\n",
+            rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]
+    );
+    }
+}
+
+void exec_mulhsu(CPU_State *cpu,uint32_t instr){
+    uint8_t rd = (instr >> 7) & 0x1F;
+    uint8_t rs1 = (instr >> 15) & 0x1F;
+    uint8_t rs2 = (instr >> 20) & 0x1F;
+
+    if(rd != 0){
+        int64_t val1 = (int64_t)cpu->gpr[rs1];
+        uint64_t val2 = cpu->gpr[rs2];
+        __int128 mul_result = (__int128)val1 * (__int128)val2;
+        cpu->gpr[rd] = (uint64_t)(mul_result >> 64);
+    }
+
+    cpu->pc += 4;
+    if(log_enable){
+    fprintf(stderr,"[mulhsu] x[%d]:0x%016lx,x[%d]:0x%016lx,x[%d]:0x%016lx\n",
+            rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]
+    );
+    }
+}
+
+void exec_mulhu(CPU_State *cpu,uint32_t instr){
+    uint8_t rd = (instr >> 7) & 0x1F;
+    uint8_t rs1 = (instr >> 15) & 0x1F;
+    uint8_t rs2 = (instr >> 20) & 0x1F;
+
+    if(rd != 0){
+        uint64_t val1 = cpu->gpr[rs1];
+        uint64_t val2 = cpu->gpr[rs2];
+        __uint128_t mul_result = (__uint128_t)val1 * (__uint128_t)val2;
+        cpu->gpr[rd] = (uint64_t)(mul_result >> 64);
+    }
+
+    cpu->pc += 4;
+        if(log_enable){
+        fprintf(stderr,"[mulhu] x[%d]:0x%016lx,x[%d]:0x%016lx,x[%d]:0x%016lx\n",
+                rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2]
+        );
+    }
+}
+
+void exec_sra(CPU_State *cpu,uint32_t instr){
+    uint8_t rd = (instr >> 7) & 0x1F;
+    uint8_t rs1 = (instr >> 15) & 0x1F;
+    uint8_t rs2 = (instr >> 20) & 0x1F;
+
+    uint8_t shamt = cpu->gpr[rs2] & 0x3F;
+
+    if(rd != 0){
+        cpu->gpr[rd] = (int64_t)cpu->gpr[rs1] >> shamt ;
+    }
+    cpu->pc += 4;
+    if(log_enable){
+    fprintf(stderr,"[sra] x[%d]:0x%16lx,shamt:0x%08x,x[%d]:0x%16lx\n",
+           rs1,cpu->gpr[rs1],shamt,rd,cpu->gpr[rd] );
+    }
 }
 
 void exec_sret(CPU_State *cpu,uint32_t instr){

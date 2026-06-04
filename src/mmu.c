@@ -544,7 +544,6 @@ void take_mmode_fault(CPU_State *cpu, uint64_t cause, bool is_interrupt) {
 
     // 2. 设置 mtval 寄存器（通常是导致异常的地址）
     write_csr(cpu, CSR_MTVAL, cpu->mem_fault.vaddr);
-
     // 3. 切换到 M 模式并跳转到异常处理程序
     
     write_csr(cpu, CSR_MEPC, cpu->pc); // 保持原来的 PC
@@ -559,16 +558,16 @@ void take_mmode_fault(CPU_State *cpu, uint64_t cause, bool is_interrupt) {
     // 5. 关闭中断（清MIE位）
     mstatus &= ~MSTATUS_MIE;
 
-    // 4. 设置MPP位为当前特权级（0=U, 1=S）
-    uint64_t mpp = (cpu->privilege == 1) ? 1 : 0; // 1=S, 0=U
+    // 4. 设置MPP位为当前特权级
+    uint64_t mpp = cpu->privilege ;
     mstatus = (mstatus & ~MSTATUS_MPP_MASK) | (mpp << 11);
     
     write_csr(cpu,CSR_MSTATUS,mstatus);
-    // 7. 设置特权级为S
-    if(cpu->privilege != 1)
-        cpu->privilege = 1;
+    // 7. 设置特权级为M
+    if(cpu->privilege != 3)
+        cpu->privilege = 3;
 
-    // 跳转到 S 模式的异常处理程序
+    // 跳转到 M 模式的异常处理程序
     cpu->pc = cpu->csr[CSR_MTVEC] & ~0x3ULL; 
 }
 
@@ -630,13 +629,19 @@ uint64_t get_pa(CPU_State *cpu,uint64_t vaddr,int acc_type){
     uint64_t satp = cpu->csr[CSR_SATP];
     uint8_t flags = 0;
 
-    if (((satp >> 60) & 0xF) == 0){
+    if (((satp >> 60) & 0xF) == 0 || cpu->privilege == 3) { // M 模式 || SATP 模式为 BARE
         return vaddr;
     }
     int result = tlb_lookup(cpu,vaddr,acc_type,&pa,cpu->asid);
+       if(cpu->pc == 0xffffffe000311e56){
+            result = TLB_MISS;
+            printf("result:0x%08x\n",result);
+            printf("tlb lookup failed for va:0x%016lx, acc_type:0x%08x\n",vaddr,acc_type);
+    }
     if(result == TLB_OK){
         return pa;
     }
+     
 
     if(result == TLB_FAULT){
          FaultCtx f = {
@@ -649,7 +654,9 @@ uint64_t get_pa(CPU_State *cpu,uint64_t vaddr,int acc_type){
     }
 
     result = sv39_translate(cpu,vaddr,acc_type,&pa,&flags);
-
+        if(cpu->pc == 0xffffffe000311e56){
+       printf("sv39 translate result:0x%08x for va:0x%08x, acc_type:0x%08x\n",result,vaddr,acc_type);
+    }
     if(result != MMU_OK){
         FaultCtx f = {
             .src = result,

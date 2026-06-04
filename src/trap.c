@@ -87,7 +87,7 @@ static void take_mmode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
     /* 2) mcause: 高位标志中断 bit31: 1:interrupt  0:exception ,   cause: 异常/中断的类型编号*/
     uint64_t mcause = is_interrupt ? (1u<<63) | (cause & 0x7fffffff) : (cause & 0x7fffffff);
     write_csr(cpu, CSR_MCAUSE, mcause);
-
+    
     /* 3) mtval（如果适用）— 这里简单置 0，某些异常需要写具体值 */
     write_csr(cpu, CSR_MTVAL, 0);
 
@@ -112,7 +112,7 @@ static void take_mmode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
 /* cause: 低位为异常/中断编号； is_interrupt: true 表示中断(need set mcause MSB) */
 void take_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
     
-    if(cpu->privilege <= 1)
+    if(cpu->privilege == 0)
         take_smode_trap(cpu,cause,is_interrupt);
     else
         take_mmode_trap(cpu,cause,is_interrupt);
