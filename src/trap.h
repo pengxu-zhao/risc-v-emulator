@@ -9,6 +9,7 @@
 void take_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt);
 void do_mret(CPU_State *cpu);
 void check_and_handle_interrupts(CPU_State *cpu);
-static void take_smode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt);
-static void take_mmode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt);
+void take_smode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt);
+void take_mmode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt);
+void take_vsmode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt);
 #endif

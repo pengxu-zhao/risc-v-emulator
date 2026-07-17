@@ -21,11 +21,11 @@
 
 #define RESET "\033[0m"
 
-#define MAX_MMIO_REGIONS 8
+#define MAX_MMIO_REGIONS 12
 
 #define NUM_GPR 32
 #define NUM_FGPR 32
-#define CSR_COUNT 4096
+#define CSR_COUNT 0x1000
 #define MAX_CORES 4
 #define SBI_LOAD_ADDR 0x80000000
 #define IMAGE_LOAD_ADDR 0x80200000
@@ -37,6 +37,11 @@
 #define MSIP_OFFSET        0x0000      // Machine Software Interrupt Pending
 #define MTIMECMP_OFFSET    0x4000      // Timer Compare Register
 #define MTIME_OFFSET       0xBFF8      // Timer Register
+
+
+#define PRV_M 3
+#define PRV_S 1
+#define PRV_U 0
 
 // 重要的CSR地址定义
 #define SSTATUS_SIE (1 << 1)    // bit 1: Supervisor Interrupt Enable
@@ -51,6 +56,12 @@
 #define SIP_STIP (1 << 5)   // bit 5: Timer interrupt pending/enable  
 #define SIP_SEIP (1 << 9)   // bit 9: External interrupt pending/enable
 
+#define SSTATUS_SUM (1 << 18) // bit 18: Supervisor User Memory access
+
+
+#define CSR_FFLAGS   0x001
+#define CSR_FRM      0x002
+#define CSR_FCSR     0x003
 #define CSR_SSTATUS  0x100
 #define CSR_SIE      0x104 //supervisor 
 #define CSR_STVEC    0x105
@@ -73,6 +84,8 @@
 #define CSR_MCAUSE   0x342
 #define CSR_MTVAL    0x343
 #define CSR_MIP      0x344
+#define CSR_MISELECT 0x350
+#define CSR_MIREG    0x351
 #define CSR_PMPCFG0    0x3A0
 #define CSR_PMPADDR0   0x3B0
 #define CSR_PMPADDR1   0x3B1
@@ -106,6 +119,23 @@
 #define CSR_MIMPID   0xF13   //机器实现ID
 #define CSR_MHARTID  0xF14  //硬件线程ID
 
+#define CSR_MTOPI	 0xfb0
+
+//H extensions
+#define HSTATUS 0x600
+#define HEDELEG 0x602
+#define HIDELEG 0x603
+#define HIE     0x604
+#define HTIMEDELTA 0x605
+#define HCOUNTEREN 0x606
+#define HGEIE    0x607 //客户机外部中断使能，按 guest id 使能 VS 级外部中断
+#define HGEIP  0xE12 //客户机外部中断挂起（只读)
+#define HTVAL 0x643
+#define HIP 0x644
+#define HVIP 0x645 //虚拟中断挂起，用于 Hypervisor 向 VS 模式注入虚拟中断
+#define HTINST 0x64A
+#define HGATP 0x680  // stage-2
+
 #define MSTATUS_MIE        (1u << 3)   /* 全局中断使能 */
 #define MSTATUS_MPIE       (1u << 7)   /* 入口时保存的 MIE */
 #define MSTATUS_MPP_SHIFT  11
@@ -114,15 +144,43 @@
 #define MSTATUS_TVM_MASK (1 << 20) //决定是否在 S-mode（监督者模式）下执行虚拟内存相关指令（如 SFENCE.VMA）时触发异常
                                     //M-mode（机器模式）通过设置 mstatus.TVM 来限制 S-mode 的虚拟内存操作，
                                     //通常用于虚拟化（hypervisor）场景，防止访客操作系统直接操作页表或 TLB。
+
+#define MSTATUS_MPV (1 << 39) //记录 M 模式陷入时是否来自 V 模式
+#define MSTATUS_GVA (1 << 38) //mtval 中的地址是否为 guest 虚拟地址
+#define HSTATUS_GVA (1 << 6)
+#define HSTATUS_SPV (1 << 7) //记录 VS 模式陷入时是否来自 V 模式
+#define HSTATUS_SPVP (1 << 8) //保存发生陷阱前的虚拟特权模式
+#define MTVAL_GVA (1 << 31) //mtval 中的地址是否为 guest 虚拟地址
+
+#define MIP_VSSIP (1 << 2)
+#define MIP_VSTIP (1 << 6)
+#define MIP_VSEIP (1 << 10)
+#define MIP_SGEIP (1 << 12)
+
+#define HIP_VSSIP (1 << 2)
+#define HIP_VSTIP (1 << 6)
+#define HIP_VSEIP (1 << 10)
+#define HIP_SGEIP (1 << 12)
+
+#define HIE_VSSIE (1 << 2)
+#define HIE_VSTIE (1 << 6)
+#define HIE_VSEIE (1 << 10)
+#define HIE_SGEIE (1 << 12)
 /* mip/mie 位 */
 #define MIP_MSIP  (1u << 3)   /* Machine software interrupt pending */
 #define MIP_MTIP  (1u << 7)   /* Machine timer interrupt pending */
 #define MIP_MEIP  (1u << 11)  /* Machine external interrupt pending */
 #define MIP_STIP (1u << 5) // S mode timer interrupt enable
+#define MIP_SEIP (1u << 9) // S mode external interrupt enable
+#define MIP_SSIP (1 << 1)
 
 #define MIE_MSIE  (1u << 3)
 #define MIE_MTIE (1UL << 7)
 #define MIE_MEIE (1UL << 11)
+
+#define MIE_SEIE (1 << 9)
+#define MIE_STIE (1 << 5)
+#define MIE_SSIE (1 << 1)
 
 /* 异常代码（同步异常） */
 #define EXC_BREAKPOINT 3
@@ -147,6 +205,10 @@
 #define MIDELEG_MTI    (0L << 7)   // M 模式的 Timer Interrupt（实际上不委托）
 #define MIDELEG_SEI    (1L << 9)   // 委托 External Interrupt 给 S 模式
 #define MIDELEG_MEI    (0L << 11)  // M 模式的 External Interrupt（实际上不委托）
+
+#define HIDELEG_SEI ( 1 << 9)
+#define HIDELEG_STI (1 << 5)
+#define HIDELEG_SSI (1 << 1)
 
 //TLB 
 #define TLB_SIZE 64
@@ -203,7 +265,9 @@ typedef enum {
 #define SATP_MODE_MASK   (1u << 31)
 #define SATP_PPN_MASK    ((1u << 22) - 1)//= 0x003fffff  // RV32: PPN is bits [21:0]
 
-
+#define GSTAGE_FAULT_INST  20
+#define GSTAGE_FAULT_LOAD  21
+#define GSTAGE_FAULT_STORE 23
 enum {  
     ACC_FETCH = 0, //取指
     ACC_LOAD = 1, //读
@@ -221,8 +285,6 @@ enum {
     MMU_FAULT_ACCESS,  // access-fault (PMA/PMP) - emulator may treat same as page-fault
     MMU_FAULT_PASSTHRU // used internally
 };
-
-        
 typedef enum {
     FAULT_NONE = 0,
 
@@ -348,5 +410,57 @@ typedef struct {
 #define VRING_DESC_F_WRITE   2   // 设备可写（用于数据方向）
 #define VRING_DESC_F_INDIRECT 4  // 描述符指向间接描述符表
 #define DISK_LATENCY_CYCLES 1000  // 模拟磁盘延迟：1000个CPU周期
+
+
+
+//IMSIC
+// 每个文件支持的中断源个数（AIA 固定 256，0 号保留）
+#define IMSIC_MAX_INTS        256
+// 每个文件大小
+#define IMSIC_FILE_SIZE       0x1000
+
+// 寄存器偏移（相对于文件基址）
+#define IMSIC_EIDELIVERY      0x00
+#define IMSIC_EITHRESHOLD     0x04
+#define IMSIC_EIP_BASE        0x08     // eip[0] .. eip[7]
+#define IMSIC_SETIPNUM        0x400    // W only
+#define IMSIC_CLRIPNUM        0x404    // W only (可选，但推荐实现)
+
+// 中断文件模式
+typedef enum {
+    IMSIC_M_MODE = 0,
+    IMSIC_S_MODE = 1
+} imsic_mode_t;
+
+// 中断文件状态
+typedef struct {
+    bool     eidelivery;               // 0x00
+    uint8_t  eithreshold;              // 0x04, 只有低 8 位有效
+    uint32_t eip[IMSIC_MAX_INTS / 32]; // 0x08-0x24
+
+    // 关联的 hart ID 和模式
+    uint32_t     hart_id;
+    imsic_mode_t mode;
+} imsic_file_t;
+// IMSIC 设备，包含所有 hart 的文件
+
+typedef struct {
+    uint32_t     num_harts;
+    imsic_file_t *mfiles;   // 长度 num_harts
+    imsic_file_t *sfiles;   // 长度 num_harts
+
+    // 回调：向 CPU 注入外部中断线，由模拟器实现
+    // hart_id : HART 编号
+    // level   : true 拉高中断，false 拉低
+    // 对于 M-mode 文件应拉高/拉低 MIP.MEIP，对于 S-mode 文件应拉高/拉低 MIP.SEIP
+    void (*set_ext_irq)(uint32_t hart_id, imsic_mode_t mode, bool level);
+} imsic_t;
+
+#define IMSIC_FILE_SIZE 0x4000
+#define hart0_M 0x24000000
+#define hart0_S 0x24004000
+#define hart1_M 0x24008000
+#define hart1_S 0x2400C000
+
 
 #endif

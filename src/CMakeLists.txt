@@ -17,16 +17,16 @@ set(SOURCES
     virtio_blk.c
     bootloader.c
     cache.c
-
+    imsic.c
+  
     # 其他源文件可以继续添加
 )
 
 # 定义可执行文件
 add_executable(rv-emulator ${SOURCES})
-
+target_link_libraries(rv-emulator PRIVATE softfloat pthread)
 # 指定依赖的头文件目录
 target_include_directories(rv-emulator PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src
 )
 
@@ -45,3 +45,4 @@ set_target_properties(rv-emulator PROPERTIES
 set_target_properties(rv-emulator PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
+

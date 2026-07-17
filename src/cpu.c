@@ -3,7 +3,8 @@
 #include "bus.h"
 #include "decode.h"
 #include "plic.h"
-
+#include "softfloat.h"
+#include <time.h>
 extern uint8_t* memory;
 extern Bus bus;
 extern int log_enable;
@@ -14,7 +15,32 @@ CPU_State cpu[MAX_CORES];
 CPU_State* get_current_cpu(void) {
     return &cpu[0];
 }
+static uint64_t start_host_ns;
+void timer_init(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    start_host_ns = (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+    
 
+}
+
+uint64_t read_mtime(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    uint64_t now_ns = (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+    uint64_t delta_ns = now_ns - start_host_ns;
+
+    // 1 MHz -> 每 1000ns 计数器加 1
+    return delta_ns / 1000;
+}
+
+
+void softfloat_init(void) {
+    softfloat_roundingMode = softfloat_round_near_even; // 默认舍入模式
+    softfloat_exceptionFlags = 0;
+    // RISC‑V 规范要求 tininess 检测时机在 rounding 之后
+    softfloat_detectTininess = softfloat_tininess_afterRounding;
+}
 void cpu_init(CPU_State* cpu, uint8_t core_id) {
   
     if (cpu == NULL) {
@@ -24,9 +50,12 @@ void cpu_init(CPU_State* cpu, uint8_t core_id) {
     
     // 清零所有状态
     memset(cpu, 0, sizeof(CPU_State));
-    
+    cpu->csr[CSR_MHARTID] = core_id;
+    cpu->cycle_count = 0;
+    cpu->bus = bus;
     cpu->mem_size = MEMORY_SIZE;
     cpu->mem = memory;
+    cpu->pc = SBI_LOAD_ADDR;
 
     cpu->use_relaxed_memory = 0;//use_relaxed;
     cpu->privilege = 3; // M-mode
@@ -38,14 +67,23 @@ void cpu_init(CPU_State* cpu, uint8_t core_id) {
     cpu->mie = cpu->csr[CSR_MIE];
     cpu->csr[CSR_MISA] = 1ULL << 18  // 支持 S 模式
                            | 1ULL << 20  // 支持 U 模式;
-                           | 1ULL << 63;// RV64
+                           | 1ULL << 63 // RV64
+                           | 1ULL << 7; //H 
+
+
+    cpu->h_extension = !!(cpu->csr[CSR_MISA] & ( 1 << 7));
 
     cpu->gpr[10] = 0;                 // a0 = hartid
     cpu->gpr[11] = DTB_LOAD_ADDR;        // a1 = dtb address
+    cpu->csr[CSR_FCSR] = 0;
+    cpu->csr[CSR_FFLAGS] = 0;
+    cpu->csr[CSR_FRM] = 0;
 
     // 初始化指令表
     init_instruction_table();
     init_syscall();
+
+    softfloat_init();
  
     printf("CPU initialization complete\n");
 }
@@ -64,25 +102,29 @@ void cpu_step(CPU_State* cpu, uint8_t* memory) {
     
     if(log_enable){
         printf("Fetching instruction from " GREEN "pc:" RESET RED "0x%08lx" 
-          RESET  "," GREEN"j:" RESET RED"%ld\n" RESET, cpu->pc,j);
+          RESET  "," GREEN"j:" RESET RED"%ld" RESET"," GREEN "Hart:" RESET RED "%d" RESET "\n", cpu->pc,j,cpu->csr[CSR_MHARTID]);
     }
 
     // 取指
     uint64_t instruction = fetch_instruction(cpu, memory);
     if(log_enable){
-    printf("Instruction: 0x%08x\n", instruction);
+        printf("Instruction: 0x%08x\n", instruction);
     }
 
     if(instruction == 0){
-        printf("ERROR: Invalid instruction (0) at PC: 0x%08lx\n", cpu->pc);
+        if(log_enable)
+            printf("ERROR: Invalid instruction (0) at PC: 0x%08lx\n", cpu->pc);
         return;
     }
     // 解码和执行
     decode_and_execute(cpu, instruction);
     
+    
+    //clint_tick(&cpu->clint,read_mtime());
+
     cpu->cycle_count++;
     if(cpu->cycle_count % 100 == 0){
-        clint_tick(&cpu->clint, 1);
+        clint_tick(&cpu->clint, 800);
     }
     cpu->csr[CSR_TIME] += 10;
     
@@ -185,4 +227,44 @@ void cpu_try_wakeup(CPU_State *cpu) {
     }
 
     pthread_mutex_unlock(&cpu->lock);
+}
+
+uint64_t read_csr(CPU_State *cpu, unsigned id){ 
+    if(cpu->v)
+    {
+        switch(id){
+            case CSR_SSTATUS : return cpu->vsstatus;
+            case CSR_STVEC : return cpu->vstvec;
+            case CSR_SEPC : return cpu->vsepc;
+            case CSR_SATP : return cpu->vsatp;
+            case CSR_SCAUSE: return cpu->vscause;
+            case CSR_SIP : return cpu->vsip;
+            case CSR_SIE : return cpu->vsie;
+            case CSR_STVAL : return cpu->vstval;
+           
+            default: break;
+        }
+    }
+    return cpu->csr[id & 0xfff]; 
+}
+void write_csr(CPU_State *cpu, unsigned id, uint64_t v){ 
+
+    if(cpu->v){
+        switch (id)
+        {
+            case CSR_SSTATUS :  cpu->vsstatus = v; break;
+            case CSR_STVEC :  cpu->vstvec = v; break;
+            case CSR_SEPC :  cpu->vsepc = v; break;
+            case CSR_SATP :  cpu->vsatp = v; break;
+            case CSR_SCAUSE:  cpu->vscause = v; break;
+            case CSR_SIP :  cpu->vsip = v ; break;
+            case CSR_SIE :  cpu->vsie = v; break;
+            case CSR_STVAL :  cpu->vstval = v ; break;
+            default:
+                break;
+       
+        }
+    }
+
+    cpu->csr[id & 0xfff] = v; 
 }

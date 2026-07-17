@@ -63,6 +63,7 @@ void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
         return;
     }
 
-    printf("[bus_write]addr:0x%16lx not in any mmio region j:%d\n",addr,j);
-    cpu[0].halted = true; // 遇到非法访问时停止 CPU
+    printf("[bus_write]addr:0x%16lx not in any mmio region j:%d,pc:0x%16lx\n",addr,j,cpu[0].pc);
+    
+    //cpu[0].halted = true; // 遇到非法访问时停止 CPU
 }

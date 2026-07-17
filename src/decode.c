@@ -67,6 +67,8 @@ static void handle_system(CPU_State* cpu,uint32_t instruction){
         }else if(imm12 == 0x105){
             //wfi wait for interrupt
             system_table[0x105](cpu,instruction);
+        }else if(imm12 == 0x620){ //hfence.gvma
+            system_table[0x620](cpu,instruction);
         }
     }
     if(funct3 == 0 && funct7 == 0x09){
@@ -89,8 +91,13 @@ void init_opcode_table(){
     opcode_table[0x1B] = exec_iw;
     opcode_table[0x17] = exec_auipc;
     opcode_table[0x23] = exec_store;
+    opcode_table[0x27] = exec_27;
     opcode_table[0x33] = handle_r_type;
     opcode_table[0x3B] = exec_3b;
+    opcode_table[0x43] = exec_43;
+    opcode_table[0x47] = exec_47;
+    opcode_table[0x4B] = exec_4b;
+    opcode_table[0x4F] = exec_4f;
     opcode_table[0x73] = handle_system;
     opcode_table[0x37] = exec_lui;
     opcode_table[0x6f] = exec_jal;
@@ -102,6 +109,7 @@ void init_opcode_table(){
     opcode_table[0x2F] = exec_amo;
     opcode_table[0x0F] = exec_fence;
     opcode_table[0x53] = exec_float;
+    opcode_table[0x07] = exec_flw;
 }
 
 static void handle_opcode(CPU_State* cpu,uint32_t instruction){
@@ -112,7 +120,7 @@ static void handle_opcode(CPU_State* cpu,uint32_t instruction){
     }else{
         opcode = half;
     }
-    //printf("Decoding opcode: 0x%02x\n", opcode);
+
     if (opcode_table[opcode]) {
         opcode_table[opcode](cpu, instruction);
     } else {
@@ -176,6 +184,7 @@ void init_system_instrcution(){
     system_table[0xA] = exec_mret;
     system_table[0x105] = exec_wfi;
     system_table[0x102] = exec_sret;
+    system_table[0x620] = exec_hfence;
     csr_instr[0x1] = exec_csr;
     
 }
@@ -198,7 +207,8 @@ uint32_t fetch_instruction(CPU_State* cpu, uint8_t* memory) {
     pa = get_pa(cpu,va,ACC_FETCH);
 
     if(pa == 0){
-        printf("fetch instruction failed: va:0x%016lx\n",va);
+        if(log_enable)
+            printf("fetch instruction failed: va:0x%016lx,pa:0x%16lx\n",va,pa);
         return 0;
     }
     if(log_enable){

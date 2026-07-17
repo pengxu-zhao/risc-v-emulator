@@ -18,17 +18,18 @@
 #include "trap.h"
 #include "bootloader.h"
 #include "cache.h"
-
+#include "mmu.h"
+#include "imsic.h"
 // x1: returen address
 // x2: stack pointer
 // x3: global pointer
 // x4: thread pointer
 // x5~x7: temp register
-// x8: save register/frame pointer
-// x9: save register
+// x8: save register/frame pointer  s0
+// x9: save register  s1
 // x10~x11: function argument / return value
 // x12~x17: function argument
-// x18~x27: save register20
+// x18~x27: save register20  x18-s2
 // x28~x31: temp register
 
 
@@ -36,9 +37,11 @@ extern uint8_t* memory;
 extern virtio_blk_device dev;
 Bus bus;
 extern CPU_State cpu[MAX_CORES];
+extern PLICState plic;
 int log_enable = 0;
-
 int j,m = 0;
+
+extern imsic_t g_imsic;
 
 extern cache_t *L1,*L2,*L3;
 
@@ -61,7 +64,7 @@ int main(int argc, char *argv[]) {
     printf("cache_t:line_size:%d sets:%d ways:%d\n", L3->line_size, L3->sets, L3->ways);
     // 初始化CPU
     printf("Initializing CPU...\n");
-
+    imsic_init(&g_imsic, MAX_CORES, set_ext_irq);
     RAMDevice ram;
     ram.data = memory;
     ram.size = MEMORY_SIZE;
@@ -85,14 +88,29 @@ int main(int argc, char *argv[]) {
         printf("entry addr:0x%08lx\n",entry_addr);
     } */
 
-
+    
     load_bin("fw_jump.bin", SBI_LOAD_ADDR);
     load_bin("Image", IMAGE_LOAD_ADDR);
     load_dtb("v1.dtb",DTB_LOAD_ADDR);
-            
-    virtio_blk_init("fs.img");
-    printf("=====init driveraddr:0x%16lx\n",dev.avail_ring);
+    
+    for (int i = 0; i < 16; i++) {
+        printf("%02x ", bus_read(&bus, 0x87000154 + i, 1));
+    }
+    printf("\n");
+               /*
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <test.elf>\n", argv[0]);
+        return 1;
+    }
 
+    const char *elf_path = argv[1];
+    uint64_t entry_addr;
+    load_elf64_SBI(elf_path, &entry_addr);
+
+    */
+    //virtio_blk_init("fs.img");
+    //printf("=====init driveraddr:0x%16lx\n",dev.avail_ring);
+    
     bus_register_mmio(&bus, 
                     MEMORY_BASE, MEMORY_SIZE, 
                     ram_read, 
@@ -128,23 +146,48 @@ int main(int argc, char *argv[]) {
                         clint_read,
                         clint_write,
                         &cpu->clint);
-    
-    static uint64_t last__v = 0;
 
-    for(int i = 0; i< 1;i++){
-        cpu[i].bus = bus;
+     bus_register_mmio(&bus,hart0_M, 
+                            IMSIC_FILE_SIZE,         
+                        imsic_read,
+                        imsic_write,
+                        &g_imsic);
+    
+    bus_register_mmio(&bus,hart0_S, 
+                            IMSIC_FILE_SIZE,         
+                        imsic_read,
+                        imsic_write,
+                        &g_imsic);
+
+    bus_register_mmio(&bus,hart1_M, 
+                        IMSIC_FILE_SIZE,         
+                        imsic_read,
+                        imsic_write,
+                        &g_imsic);
+
+    bus_register_mmio(&bus,hart1_S, 
+                        IMSIC_FILE_SIZE,         
+                        imsic_read,
+                        imsic_write,
+                        &g_imsic);
+
         
+    for(int i = 0; i < 2; i++){
         cpu_init(&cpu[i],i);
-        cpu[i].cycle_count = 0;
         tlb_flush(&cpu);
-        // 运行模拟器
         printf("Starting RISC-V emulator...cpu privilege: %d\n",cpu[i].privilege);
-        printf("Only cpu 0\n");
-     
-        cpu[i].pc = SBI_LOAD_ADDR;
         printf("pc[%d]:0x%08lx\n",i,cpu[i].pc);
-            
-            
+    }
+    //275165  generic_domain_init
+   while(j < 439001){
+  
+        j++;
+      
+        if(j == 439000) log_enable = 1;
+    
+        
+    for(int i = 0; i < 2;i++){
+
         //415421550
         // 415283130  first to 800053ce
 
@@ -162,103 +205,88 @@ int main(int argc, char *argv[]) {
         //429899252 ready to call wait()
         //431817210  0x74
         //for( ;j <= 431961669; j++)
-        //2909990 _start_kerenl
-        //3043044 
-        for( ;j <= 3043144; j++)
-        { 
-            if(j > 3043114)
-                log_enable = 1;
-        
-        
+        // 
+        // 37974731 __list_add_valid 37974711
+        //43068080   riscv_intc_init
+        //43879594    sie.stie = 1
+        //44701841   kernel_init
+        // 391373372
+    
+        for( int k = 0;k < 10; k++){
+            //0x264d02 156138704
+            //198456480 bus_write halted
+            //198456786 
+            
+            //201395390   kernel_init ret to ret_from_exception
+            //201424982
             uint32_t stop_addr = 0xFFFFFFFF;
+
             if(argc > 1){
                 stop_addr = strtoul(argv[1], NULL, 16);
             }
-        
-            if(stop_addr == cpu[0].pc - MEMORY_BASE){
-                printf("stop at pc:0x%08lx,j:%ld\n",stop_addr + MEMORY_BASE,j);
+            uint64_t base = 0;
+         
+            //base = 0xffffffe000000000;
+            
+            base = 0x80000000;
+            
+            
+            if(stop_addr == (cpu[0].pc - base) && j > 68501){
+                printf("stop at pc:0x%08lx,j:%ld,pri:%d\n",stop_addr + base,j,cpu[0].privilege);
+                j = 1000000000;
+                break;
+            } 
+       
+            if(cpu[i].running == false){
                 break;
             }
 
-            if(cpu[0].running == false){
-                break;
+            pthread_mutex_lock(&cpu[i].lock);
+
+            while (cpu[i].halted) {
+                pthread_cond_wait(&cpu[i].cond, &cpu[i].lock);
             }
 
-            pthread_mutex_lock(&cpu->lock);
-
-            while (cpu->halted) {
-                pthread_cond_wait(&cpu->cond, &cpu->lock);
-            }
-
-            pthread_mutex_unlock(&cpu->lock);
+            pthread_mutex_unlock(&cpu[i].lock);
                 
             cpu_step(&cpu[i],memory);
             
-            if(cpu[0].gpr[0] != 0){
-                printf("j:%d pc:0x%08lx\n",j,cpu[0].pc);
-                cpu[0].halted = true;
+            if(cpu[i].gpr[0] != 0){
+                printf("j:%d pc:0x%08lx\n",j,cpu[i].pc);
+                printf("x[0]:0x%lx\n",cpu[i].gpr[0]);
+                cpu[i].halted = true;
             }
             virtio_disk_update(&cpu[i].cycle_count);
         
             check_and_handle_interrupts(&cpu[i]);
+         
+        }
+        
+     }
+        if(log_enable){
+            printf("\nFinal CPU state:\n");
+            //cpu_dump_registers(&cpu[i]);
             
+            printf("Cleaning up...\n");
+            
+            //free(memory);
+            printf("Emulator finished j:%ld,pc:0x%08lx\n",j,cpu[0].pc);
+
+
+            printf("sstatus:0x%08lx\n",cpu[0].csr[CSR_SSTATUS]);
+            printf("sip:0x%08lx\n",cpu[0].csr[CSR_SIP]);
+
+
+            uint64_t pa3 = 0x80001000;
+            uint64_t val3 = bus_read(&bus, pa3, 8);
+            printf("0x%08lx: 0x%016lx\n", pa3, val3);
+            if(val3 == 0x1){
+                printf("TEST PASS\n");
+            }
         }
-        
-
-        
-        printf("\nFinal CPU state:\n");
-        //cpu_dump_registers(&cpu[i]);
-        
-        printf("Cleaning up...\n");
-        
-        //free(memory);
-        printf("Emulator finished j:%ld,pc:0x%08lx\n",j,cpu[0].pc);
-
-
-        printf("sstatus:0x%08lx\n",cpu[0].csr[CSR_SSTATUS]);
-        printf("sip:0x%08lx\n",cpu[0].csr[CSR_SIP]);
-
-
-      
-        uint64_t pa = 0x8001a000; // VA 0 的物理地址
-        for(int i=0; i<0x400; i+=16) {
-         //  uint64_t val = bus_read(&bus, pa + i, 8);
-           // printf("0x%08lx: 0x%016lx\n", pa + i, val);
-        }
-
-        for(int i=0; i < 8;i++){
-            uint64_t val1 = bus_read(&bus, 0x8700006c + i, 8);
-           // printf("0x%08lx: 0x%016lx\n", 0x8700006c + i, val1);
-        }
-
-        for(int i=0; i < 8;i++){
-            uint64_t val2 = bus_read(&bus, 0x8002c700 + i, 8);
-           // printf("0x%08lx: 0x%016lx\n", 0x8002c700 + i, val2);
-        }
-
+            
     }
     
-    // 设置自旋锁地址为 1
-    /*
-    uint64_t spinlock_addr = 0x80040008;
-    uint64_t ram_base = 0x80000000;  // 注意：OpenSBI 可能期望 RAM 从 0x80000000 开始
-    
-    uint64_t spinlock_addr2 = 0x80043230;
-
-    if (spinlock_addr >= ram_base && spinlock_addr < ram_base + ram.size) {
-        uint64_t offset = spinlock_addr - ram_base;
-        uint64_t value = 1;
-        memcpy(ram.data + offset, &value, 8);
-
-        uint64_t offset2 = spinlock_addr2 - ram_base;
-        memcpy(ram.data + offset2, &value, 8);
-
-        printf("OpenSBI 自旋锁已修复\n");
-    } else {
-        printf("错误：自旋锁地址不在 RAM 中\n");
-    } */ 
-
-   // init_tasks();
 
     return 0;
 }

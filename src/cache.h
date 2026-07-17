@@ -15,7 +15,6 @@
     addr[6:11] -> cache line index
 */
 
-
 typedef struct cache_line {
     bool valid;
     bool dirty;

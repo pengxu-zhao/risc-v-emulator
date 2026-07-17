@@ -44,6 +44,7 @@ typedef struct {
     uint8_t  asid;         // 地址空间ID（0-255）
     uint64_t last_used;    // LRU计数器
     PageSize page_size;     // 页大小（4KB/2MB/1GB）
+    uint16_t vmid;          // 虚拟机 ID，来自 hgatp.ASID
     
 } TLBEntry;
 
@@ -141,6 +142,18 @@ typedef struct {
 
     uint64_t reserv_addr;   // 保留的物理地址
     bool     reserv_valid;  // 该保留是否有效
+    bool v;// 是否处于虚拟化模式
+    bool h_extension;
+    uint64_t vsstatus;
+    uint64_t vstvec;
+    uint64_t vsepc;
+    uint64_t vscause;
+    uint64_t vstval;
+    uint64_t vsatp;
+    uint64_t vsie;
+    uint64_t vsip;
+    uint64_t vsscratch; 
+    uint64_t vstimecmp;
 
 } CPU_State;
 
@@ -150,8 +163,8 @@ void cpu_step(CPU_State* cpu, uint8_t* memory);
 void cpu_run(CPU_State* cpu, uint8_t* memory);
 void cpu_dump_registers(CPU_State* cpu);
 
-static inline uint64_t read_csr(CPU_State *cpu, unsigned id){ return cpu->csr[id & 0xfff]; }
-static inline void write_csr(CPU_State *cpu, unsigned id, uint64_t v){ cpu->csr[id & 0xfff] = v; }
+uint64_t read_csr(CPU_State *cpu, unsigned id);
+void write_csr(CPU_State *cpu, unsigned id, uint64_t v);
 uint64_t get_cpu_cycle(CPU_State *cpu);
 void cpu_try_wakeup(CPU_State *cpu);
 

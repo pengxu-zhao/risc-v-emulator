@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../../../opensbi"
+		},
+		{
+			"path": "../../../myHypervisor"
 		}
 	],
 	"settings": {}

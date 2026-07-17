@@ -25,9 +25,6 @@ typedef struct {
 
 } PLICState;
 
-static PLICState plic;
-
-
 uint64_t plic_read(void *opaque,uint64_t addr, int size);
 void plic_write(void *opaque,uint64_t addr, uint64_t value, int size);
 void plic_set_irq(int irq, int level) ;

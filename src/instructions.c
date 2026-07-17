@@ -7,7 +7,9 @@
 #include "mmu.h"
 #include "bus.h"
 #include "cache.h"
-
+#include <math.h>
+#include "softfloat.h"
+#include "softfloat_types.h"
 
 extern uint8_t* memory;
 extern int log_enable;
@@ -49,6 +51,8 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
 
             if(imm10 != 0){
                 cpu->gpr[rd] = cpu->gpr[2] + imm10;
+            }else{
+                // 
             }               
             cpu->pc += 2;
             if(log_enable){
@@ -57,6 +61,54 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
             }
             break;
         }
+        case 0b001://c.fld
+        {
+            uint8_t rd = (instr >> 2) & 0x7 + 8;
+            uint8_t rs1 = (instr >> 7) & 0x7 + 8;
+ 
+            uint8_t imm = ((instr >> 5) & 0x3) << 6 |
+                        ((instr >> 10) & 0x7) << 3;
+
+            uint64_t addr = cpu->gpr[rs1] + (uint64_t)(uint32_t)imm;
+
+            uint64_t pa = get_pa(cpu,addr,ACC_LOAD);
+            if(pa == 0) return;
+            float64_t val;
+            val.v = bus_read(&cpu->bus,pa,8);
+
+            if(rd != 0){
+                cpu->fgpr[rd] = val.v;
+            }
+
+            cpu->pc += 2;
+
+            if(log_enable){
+                fprintf(stderr,"[c.fld] x[%d]:0x%16lx,addr:0x%16lx, pa:0x%08lx\n",rd,cpu->fgpr[rd],addr,pa);
+            }
+            break;
+        }
+        case 0b101://c.fsd
+        {
+            uint8_t rs1 = (instr >> 7) & 0x7 + 8;
+            uint8_t rs2 = (instr >> 2) & 0x7 + 8;
+
+            uint8_t imm = ((instr >> 5) & 0x3) << 6 |
+                        ((instr >> 10) & 0x7) << 3;
+
+            uint64_t addr = cpu->gpr[rs1] + (uint64_t)(uint32_t)imm;
+
+            uint64_t pa = get_pa(cpu,addr,ACC_STORE);
+            if(pa == 0) return;
+            bus_write(&cpu->bus,pa,cpu->fgpr[rs2],8);
+
+            cpu->pc += 2;
+
+            if(log_enable){
+                fprintf(stderr,"[c.fsd] x[%d]:0x%16lx,addr:0x%16lx, pa:0x%08lx\n",rs2,cpu->fgpr[rs2],addr,pa);
+            }
+            break;
+        }
+        
     case 0b010://c.lw
         {
             uint8_t rd = ((instr >> 2) & 0x7) + 8;
@@ -67,7 +119,7 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
         
             uint64_t addr = cpu->gpr[rs1] + imm8;
             uint64_t pa = get_pa(cpu,addr,ACC_LOAD);
-   
+            if(pa == 0) return;
             if(rd != 0){
                  
                 cpu->gpr[rd] = (int64_t)(int32_t)bus_read(&cpu->bus,pa,4);
@@ -87,7 +139,9 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
                 | ((instr >> 10) & 0x7) << 3 
                 | ((instr >> 5) & 0x1) << 6; 
         uint64_t addr = cpu->gpr[rs1] + imm;      
+      
         uint64_t pa = get_pa(cpu,addr,ACC_STORE);
+        if(pa == 0) return;
         bus_write(&cpu->bus,pa,cpu->gpr[rs2],4);
         if(log_enable)
             fprintf(stderr,"[c.sw after] imm:0x%08lx,pa:0x%08x,rs2 val:%d 0x%08x\n",imm,pa,rs2,cpu->gpr[rs2]);
@@ -103,8 +157,9 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
                  ((instr >> 10) & 0x7) << 3 
                 | ((instr >> 5) & 0x3) << 6; 
         uint64_t addr = cpu->gpr[rs1] + imm;
+
         uint64_t pa = get_pa(cpu,addr,ACC_STORE);
-      
+        if(pa == 0) return;
         bus_write(&cpu->bus,pa,cpu->gpr[rs2],8);
         cpu->pc += 2;
         if(log_enable){
@@ -116,6 +171,7 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
     }
     case 0b011: //c.ld
     {
+    
         uint8_t rs1 = ((instr >> 7) & 0x7) + 8;
         uint8_t rd = ((instr >> 2) & 0x7) + 8;
 
@@ -125,12 +181,18 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
         
         uint64_t val = 0;
         uint64_t vaddr = cpu->gpr[rs1] + imm;
+        if(log_enable)
+            printf("rs1:%d  = 0x%16lx, rd:%d imm:0x%16lx\n",rs1,cpu->gpr[rs1],rd,imm);
         uint64_t pa = get_pa(cpu,vaddr,ACC_LOAD);
-        
+        if(log_enable)
+            printf("c.ld vaddr:0x%16lx, pa:0x%16lx\n",vaddr,pa);
+        if(pa == 0) return;
         val = bus_read(&cpu->bus,pa,8);
+
         if(rd != 0){
             cpu->gpr[rd] = val;
         }
+  
         cpu->pc += 2;
         if(log_enable){
             fprintf(stderr,"[c.ld] vaddr:0x%16lx\n",vaddr);
@@ -274,6 +336,9 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
         if(funct2_10_11 == 0b00){ //c.srli c.srli64
             uint8_t shamt = (instr >> 2) & 0x1F |
                             ((instr >> 12) & 0x1) << 5;
+            if(log_enable){
+                printf("[c.srli] before : 0x%16lx\n",cpu->gpr[rd]);
+            }
             cpu->gpr[rd] >>= shamt;
             cpu->pc += 2;
             if(log_enable){
@@ -326,9 +391,10 @@ void exec_c1(CPU_State* cpu,uint16_t instr){
                 cpu->pc += 2;
             }else if(funct2_56 == 0b00){ 
                 uint8_t bit12 = (instr >> 12) & 0x1;
-                printf("bit12:%d\n",bit12);
+               
                 if(bit12 == 0){ //c.sub
-
+                    if(log_enable)
+                        printf("[c.sub]before rs1:0x%16lx\n",cpu->gpr[rd]);
                     cpu->gpr[rd] -= cpu->gpr[rs2];
                     cpu->pc += 2;
                     if(log_enable){
@@ -468,6 +534,7 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
                         ((instr >> 2) & 0x3) << 6;
         uint64_t addr = cpu->gpr[2] + imm;
         uint64_t pa = get_pa(cpu,addr,ACC_STORE);
+        if(pa == 0) return;
         if(rd != 0){
             cpu->gpr[rd] =(int64_t)((int32_t)bus_read(&cpu->bus,pa,4));
         }
@@ -487,7 +554,7 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         uint64_t val = 0;
 
         uint64_t pa = get_pa(cpu,vaddr,ACC_LOAD);
-     
+        if(pa == 0) return;
         val = bus_read(&cpu->bus,pa,8);
         cpu->gpr[rd] = val;
         cpu->pc += 2;
@@ -506,8 +573,9 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
            
         uint64_t addr = cpu->gpr[0x2] + imm;//x2 + imm
 
+  
         uint64_t pa = get_pa(cpu,addr,ACC_STORE);
-
+        if(pa == 0) return;
         bus_write(&cpu->bus,pa,cpu->gpr[rs2],4);
         if(log_enable){
             fprintf(stderr,"c.swsp pa : 0x%08x ,rs2 val:%d 0x%08x\n",pa,rs2,cpu->gpr[rs2]);
@@ -590,6 +658,7 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
 
         uint64_t pa = get_pa(cpu,vaddr,ACC_STORE);
 
+        if(pa == 0) return;
         bus_write(&cpu->bus,pa,cpu->gpr[rs2],8);
         
         cpu->pc += 2;
@@ -704,7 +773,7 @@ void exec_jal(CPU_State* cpu, uint32_t instruction) {
         | ((instruction >> 20) & 0x1) << 11
         | ((instruction >> 21) & 0x3FF) << 1;
     
-    int64_t imm = (int64_t)(((int32_t)imm20 << 12) >> 12);
+    int64_t imm = (int64_t)(((int32_t)imm20 << 11) >> 11);
 
     if (rd != 0) {
         cpu->gpr[rd] = cpu->pc + 4;
@@ -715,6 +784,10 @@ void exec_jal(CPU_State* cpu, uint32_t instruction) {
 
     }
     cpu->pc += imm;
+    if(log_enable){
+        printf("current pc:0x%16lx\n",cpu->pc);
+        printf("imm:0x%16lx\n",imm);
+    }
 }
 
 void exec_jalr(CPU_State* cpu, uint32_t instruction){
@@ -989,6 +1062,11 @@ void exec_mul(CPU_State* cpu,uint32_t instruction){
     if(rd != 0){
         cpu->gpr[rd] = (cpu->gpr[rs1] * cpu->gpr[rs2]);
     }
+
+    if(log_enable){
+        printf("[mul] rd:%d = rs1:%d * rs2:%d ",rd,rs1,rs2);
+        printf("[mul] 0x%16lx = 0x%16lx * 0x%16lx\n",cpu->gpr[rd],cpu->gpr[rs1],cpu->gpr[rs2]);
+    }
     cpu->pc += 4;
 }
 
@@ -1058,14 +1136,15 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
     uint64_t value = cpu->gpr[rs2];
 
     uint8_t funct3 = (instructions >> 12) & 0x7 ;
+    
 
+    if(log_enable){
+        fprintf(stderr,"[store] x[%d]:0x%16lx + imm:0x%16lx = addr:0x%16lx\n",
+                rs1,cpu->gpr[rs1],imm,addr);
+    }
     uint64_t pa = get_pa(cpu,addr,ACC_STORE);
 
-    if(addr >= 0x3fffffc000 && addr <= 0x3ffffff000){
-       // printf("occur store to 0x%08lx,value:0x%16lx,j:%ld\n",addr,value,j);
-       // cpu->halted = true;
-    }
-
+    if(pa == 0) return;
 
     switch (funct3)
     {
@@ -1125,8 +1204,8 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
 // 系统调用（ECALL）指令 - 
 void exec_ecall(CPU_State* cpu, uint32_t instruction) {
     //fprintf(stderr,"ECALL instruction at PC: 0x%08x\n", cpu->pc);
-
-    // 这里可以处理系统调用
+    //if(cpu->gpr[17] != 0x1 && j < 44046038)
+       // printf(BLUE "execute ECALL pc:0x%16lx,j:%ld,:a6: %d a7:%d\n" RESET,cpu->pc,j,cpu->gpr[16],cpu->gpr[17]);
     /* 选择是从 U/S/M 发出的 ECALL：根据当前 privilege 设置 cause */
  
     uint32_t cause = (cpu->privilege == 0 ? EXC_ECALL_U :
@@ -1136,6 +1215,7 @@ void exec_ecall(CPU_State* cpu, uint32_t instruction) {
     if(log_enable){
         fprintf(stderr,"[ECALL] from privilege level %d, cause: %d,faulting address: 0x%016lx\n", cpu->privilege, cause, cpu->mem_fault.vaddr);
         fprintf(stderr,"[ECALL] mtvec:0x%016lx\n", cpu->csr[CSR_MTVEC]);
+        fprintf(stderr,"[ECALL] medeleg:0x%16lx\n",cpu->csr[CSR_MEDELEG]);
     }
 
     if(cpu->privilege != 3 && cpu->csr[CSR_MEDELEG] & (1 << cause)){
@@ -1238,39 +1318,54 @@ void exec_mret(CPU_State* cpu,uint32_t instr){
     mstatus &= ~MSTATUS_MPP_MASK; 
     mstatus |= (0 << MSTATUS_MPP_SHIFT);
 
+    if( (mstatus & MSTATUS_MPV) && (mpp != 3) ){
+        cpu->v = true;
+    }else{
+        cpu->v = false;
+    }
+
     cpu->csr[CSR_MSTATUS] = mstatus;
     cpu->pc = cpu->csr[CSR_MEPC];
+
+
+    
+
+
+    if(log_enable){
+        printf("[after mret]:0x%16lx\n",cpu->pc);
+    }
    
 }
 
 //sfence.vma 
 void exec_sfencevma(CPU_State* cpu,uint32_t instruction){
 
-    uint8_t rs1 = (instruction >> 15) & 0x1F;
-    uint8_t rs2 = (instruction >> 20) & 0x1F;
-    //rs1 (vaddr): 指定要失效的虚拟地址。
-    //rs2 (asid): 指定地址空间标识符。
+    uint8_t rs1 = (instruction >> 15) & 0x1f;
+    uint8_t rd = (instruction >> 7) & 0x1f;
     uint64_t vaddr = cpu->gpr[rs1];
-    uint64_t asid = cpu->gpr[rs2];
-    uint64_t vpn = (vaddr >> 12) & 0x3FFFFFF;
+    uint64_t asid = cpu->gpr[rd];
 
-    // 直接处理 xv6 常用的情况：无参数 sfence.vma x0,x0
-    // xv6 只用这一种！
-    if (rs1 == 0 && rs2 == 0) {
-        for(int i = 0; i < TLB_SIZE; i++){
-            cpu->cpu_tlb.iTLB.entries[i].valid = false;
-            cpu->cpu_tlb.dTLB.entries[i].valid = false;
-            cpu->tlb.entries[i].valid = false;
+        for (int i = 0; i < TLB_SIZE; i++) {
+        TLBEntry *e = &cpu->tlb.entries[i];
+        if (!e->valid) continue;
+
+        // 全局页忽略 asid/vaddr？规范：若 rs1=x0 则只比较 rs2 (asid)，但为简单可刷掉匹配 asid 的所有。
+        // 通常实现：若 vaddr 非零，只刷特定地址；若 asid 非零，只刷该地址空间。
+        // 这里简化：清除所有 asid 匹配的条目（若 asid 非零）。
+        if (asid != 0 && e->asid != asid) continue;
+        // 若 vaddr 非零，还需检查地址是否在同一页内（需根据 page_size 比较 VPN）
+        if (vaddr != 0) {
+            uint64_t vpn;
+            switch (e->page_size) {
+                case PAGE_4KB: vpn = (vaddr >> 12) & 0x3FFFFFF; break;
+                case PAGE_2MB: vpn = (vaddr >> 21) & 0x1FFFFF; break;
+                case PAGE_1GB: vpn = (vaddr >> 30) & 0x3FF; break;
+                default: continue;
+            }
+            // 直接比较 tag 中的 VPN 部分（低 26 位）
+            if ((e->tag & 0x3FFFFFF) != vpn) continue;
         }
-       // fprintf(stderr,"[sfence] flush all TLB\n");
-    } else {
-        // 其他情况暂不实现或简单 flush all
-        for(int i = 0; i < TLB_SIZE; i++){
-            cpu->cpu_tlb.iTLB.entries[i].valid = false;
-            cpu->cpu_tlb.dTLB.entries[i].valid = false;
-            cpu->tlb.entries[i].valid = false;
-        }
-       //fprintf(stderr,"[sfence] unimplemented case, flush all anyway\n");
+        e->valid = 0;
     }
     cpu->pc += 4;
    
@@ -1355,8 +1450,7 @@ void exec_load(CPU_State *cpu,uint32_t instruction){
     }
 
     addr = get_pa(cpu,addr,ACC_LOAD);
-
-    //fprintf(stderr,"load funct3:%d\n",funct3);
+    if(addr == 0) return;
     switch (funct3)
     {
     case 0x0:
@@ -1416,6 +1510,10 @@ void exec_load(CPU_State *cpu,uint32_t instruction){
         
         if(rd != 0){
             cpu->gpr[rd] = val;
+        }
+
+        if(log_enable){
+            printf("x[%d]:0x%16lx, addr:0x%16lx\n",rd,cpu->gpr[rd],addr);
         }
         break;
     }
@@ -1636,13 +1734,21 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
             if(rd != 0){
                 cpu->gpr[rd] = cpu->csr[csr];
             }
+            if(log_enable){
+                fprintf(stderr,"csr[0x%08x] old value:0x%16lx\n",csr,cpu->csr[csr]);
+                fprintf(stderr,"rs1[%d] value:0x%16lx\n",rs1,cpu->gpr[rs1]);
+            }
+    
             if(rs1 != 0){
                 cpu->csr[csr] |= cpu->gpr[rs1];
             }
+
+
             if(log_enable){
-                fprintf(stderr," rd = csr old value,csr |= rs1\n");
-            fprintf(stderr,"[csrrs] x[rd:%d]:0x%16lx,csr[0x%08x] |= x[rs1:%d]:0x%16lx,val = 0x%16lx\n ",
-                            rd,cpu->gpr[rd],csr,rs1,cpu->gpr[rs1],cpu->csr[csr]);
+                fprintf(stderr,"[csrrs] rd = csr old value,csr |= rs1\n");
+                fprintf("csr new value:0x%16lx\n",cpu->csr[csr]);
+
+        
             }
 
             break;
@@ -1653,7 +1759,7 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
             cpu->csr[csr] &= ~cpu->gpr[rs1];
             if(log_enable){
                 fprintf(stderr," rd = csr old value,csr &= ~rs1\n");
-            fprintf(stderr,"[csrrc] x[%d]:0x%16lx,csr[0x%08x] |= x[%d]:0x%16lx,val = 0x%16lx\n ",
+            fprintf(stderr,"[csrrc] x[%d]:0x%16lx,csr[0x%08x] &= ~x[%d]:0x%16lx,val = 0x%16lx\n ",
                             rd,cpu->gpr[rd],csr,rs1,cpu->gpr[rs1],cpu->csr[csr]);
             }
 
@@ -1686,6 +1792,16 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
             fprintf(stderr,"[csrrci] x[%d]:0x%16lx,new value:0x%16lx\n",rd,cpu->gpr[rd],
                         cpu->csr[csr]);
             }
+            break;
+        }case 0b110://csrrsi
+        {
+           uint8_t imm5 = (instr >> 15) & 0x1F;
+           uint64_t old_value = cpu->csr[csr] ;
+           uint64_t imm = (uint64_t)(uint32_t)imm5;
+           cpu->csr[csr] |= imm;
+           if(log_enable)
+            fprintf(stderr,"[csrrsi] csr[0x%08lx]:0x%16lx\n",csr,cpu->csr[csr]);
+           
         }
         default:
             break;
@@ -1761,9 +1877,10 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
     uint8_t rl = (instr >> 25) & 0x1;
     uint8_t aq = (instr >> 26) & 0x1;
     uint8_t funct7 = (instr >> 27) & 0x1F;
+    uint64_t addr1 = cpu->gpr[rs1];
 
     uint64_t addr = get_pa(cpu,cpu->gpr[rs1],ACC_STORE);
-
+    if(addr == 0) return;
     if(funct3 == 0b010){ // .w
         switch (funct7)
         {
@@ -1800,8 +1917,12 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
                   atomic, the whole process cannot be interrupted 
                   by other instructions,harts, including interrupts and exceptions.
                   */
+                 if(log_enable){
+                    fprintf(stderr,"[before AMOSWAP.W] x[%d]:0x%16lx,x[%d]:0x%16lx,x[%d]:0x%16lx,addr:0x%08lx\n",
+                            rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],rs2,cpu->gpr[rs2],addr);
+                }
                 uint32_t tmp = bus_read(&cpu->bus,addr,4);
-                bus_write(&cpu->bus,addr,cpu->gpr[rs2],4);
+                bus_write(&cpu->bus,addr,cpu->gpr[rs2],4)   ;
                 write_gpr(cpu,rd,(int64_t)(int32_t)tmp);
                 
 
@@ -2207,6 +2328,433 @@ void exec_fence(CPU_State* cpu,uint32_t instr){
         break;
     }
 }
+static inline void set_fflags(CPU_State *cpu, uint32_t flags) {
+    cpu->csr[CSR_FFLAGS] |= flags;
+}
+
+// 安全类型双关
+static inline uint32_t f32_to_bits(float f) {
+    uint32_t u; memcpy(&u, &f, sizeof(u)); return u;
+}
+static inline float f32_from_bits(uint32_t u) {
+    float f; memcpy(&f, &u, sizeof(f)); return f;
+}
+
+// 单精度加法核心
+uint32_t fadd_s_core(uint32_t a, uint32_t b, uint8_t rm, uint32_t *p_flags) {
+    uint32_t flags = 0;
+
+    // 解包
+    bool sa = (a >> 31) & 1, sb = (b >> 31) & 1;
+    int32_t ea = (a >> 23) & 0xFF, eb = (b >> 23) & 0xFF;
+    uint32_t ma = a & 0x7FFFFF, mb = b & 0x7FFFFF;
+
+    // 判断特殊值
+    bool inf_a = (ea == 0xFF), inf_b = (eb == 0xFF);
+    bool nan_a = inf_a && ma, nan_b = inf_b && mb;
+    bool zero_a = (ea == 0) && !ma, zero_b = (eb == 0) && !mb;
+
+    // NaN
+    if (nan_a || nan_b) {
+        *p_flags = FFLAG_NV;
+        return 0x7FC00000;   // 规范 NaN
+    }
+
+    // 无穷运算
+    if (inf_a || inf_b) {
+        if (inf_a && inf_b && sa != sb) {
+            *p_flags = FFLAG_NV;
+            return 0x7FC00000; // inf-inf
+        }
+        uint32_t inf_res = inf_a ? a : b;
+        // 无穷 + 零 或无穷+同号无穷
+        return inf_res;
+    }
+
+    // 零运算
+    if (zero_a && zero_b) {
+        // +0 + -0 的符号由舍入模式决定
+        bool sign = (sa & sb) ? 1 : 0; // 同负得负
+        if (sa != sb) sign = (rm == RDN) ? 1 : 0;
+        return sign << 31;
+    }
+    if (zero_a) return b;
+    if (zero_b) return a;
+
+    // 附加隐含位
+    bool a_denorm = (ea == 0);   // 次正规
+    bool b_denorm = (eb == 0);
+    if (!a_denorm) ma |= 0x800000;
+    if (!b_denorm) mb |= 0x800000;
+
+    int32_t rea = ea - 127, reb = eb - 127;
+    if (a_denorm) rea = -126;
+    if (b_denorm) reb = -126;
+
+    // 向较大指数对齐，使用 56 位宽 (32 位尾数 + 24 位额外精度)
+    int32_t exp_diff = rea - reb;
+    uint64_t wide_a = (uint64_t)ma << 24;   // 高 24 位有效，低 24 位保护
+    uint64_t wide_b = (uint64_t)mb << 24;
+
+    if (exp_diff > 0) {
+        if (exp_diff < 48) {
+            uint64_t sticky_mask = (1ULL << exp_diff) - 1;
+            wide_b = (wide_b >> exp_diff) | ((wide_b & sticky_mask) ? 1 : 0);
+        } else {
+            wide_b = 1; // sticky 为 1，移位后只剩下 1
+        }
+        reb = rea;
+    } else if (exp_diff < 0) {
+        exp_diff = -exp_diff;
+        if (exp_diff < 48) {
+            uint64_t sticky_mask = (1ULL << exp_diff) - 1;
+            wide_a = (wide_a >> exp_diff) | ((wide_a & sticky_mask) ? 1 : 0);
+        } else {
+            wide_a = 1;
+        }
+        rea = reb;
+    }
+
+    // 有效指数
+    int32_t res_exp = rea;
+    bool sign_res;
+    uint64_t sum_mant;
+
+    if (sa == sb) {
+        sum_mant = wide_a + wide_b;
+        sign_res = sa;
+    } else {
+        if (wide_a >= wide_b) {
+            sum_mant = wide_a - wide_b;
+            sign_res = sa;
+        } else {
+            sum_mant = wide_b - wide_a;
+            sign_res = sb;
+        }
+    }
+
+    if (sum_mant == 0) {
+        *p_flags = 0;
+        return (rm == RDN ? 0x80000000 : 0); // -0
+    }
+
+    // 规格化：使最高有效位在 bit 47 (即 24位尾数的最高位)
+    while (sum_mant < (1ULL << 47)) {
+        sum_mant <<= 1;
+        res_exp--;
+    }
+    while (sum_mant >= (1ULL << 48)) {
+        sum_mant >>= 1;
+        res_exp++;
+    }
+
+    // 尾数取高 24 位
+    uint64_t mant = sum_mant >> 24;          // 24 bits
+    uint64_t remainder = sum_mant & 0xFFFFFF; // 24 bits extra
+    bool guard = (remainder >> 23) & 1;
+    bool round = (remainder >> 22) & 1;
+    bool sticky = (remainder & 0x3FFFFF) != 0;  // 低 22 位
+    // 判断是否需要舍入
+    bool inc = false;
+    switch (rm) {
+    case RNE:
+        inc = guard && (round || sticky || (mant & 1));
+        break;
+    case RMM:
+        inc = guard;  // 只要有 guard 位就向上
+        break;
+    case RTZ:
+        inc = false;
+        break;
+    case RDN:
+        inc = sign_res && (guard || round || sticky);
+        break;
+    case RUP:
+        inc = !sign_res && (guard || round || sticky);
+        break;
+    }
+
+    mant += inc ? 1 : 0;
+    if (mant >= 0x1000000) {  // 尾数溢出
+        mant >>= 1;
+        res_exp++;
+    }
+
+    // 检查指数范围
+    if (res_exp > 127) { // 上溢
+        flags |= FFLAG_OF | FFLAG_NX;
+        switch (rm) {
+        case RDN: return sign_res ? 0xFF800000 : 0x7F7FFFFF;
+        case RUP: return sign_res ? 0x807FFFFF : 0x7F800000;
+        case RTZ: return sign_res ? 0x807FFFFF : 0x7F7FFFFF;
+        default:  return sign_res ? 0xFF800000 : 0x7F800000;
+        }
+    }
+
+    if (res_exp < -126) { // 下溢到次正规/零
+        flags |= FFLAG_UF;
+        int shift = -126 - res_exp;
+        // 将 mant 右移，同时保留舍入信息
+        uint64_t shift_sticky = 0;
+        for (int i = 0; i < shift; i++) {
+            shift_sticky |= (mant & 1);
+            mant >>= 1;
+        }
+        // 再次舍入（次正规区域）
+        bool g2 = (mant & 1); // 移位后最低位为 guard 等效
+        bool s2 = shift_sticky ? 1 : 0;
+        bool inc2 = false;
+        switch (rm) {
+        case RNE: inc2 = g2 && (s2 || (mant & 1)); break;
+        case RMM: inc2 = g2; break;
+        case RTZ: inc2 = false; break;
+        case RDN: inc2 = sign_res && (g2 || s2); break;
+        case RUP: inc2 = !sign_res && (g2 || s2); break;
+        }
+        mant += inc2;
+        if (mant >= 0x800000) { // 回到了最小正规数
+            mant = 0;
+            res_exp = -126;
+        } else {
+            res_exp = -127; // 次正规
+            flags |= FFLAG_NX;
+            return (sign_res << 31) | mant;
+        }
+    }
+
+    // 组装正规数/次正规数
+    uint32_t result;
+    if (res_exp <= -127) { // 次正规
+        result = (sign_res << 31) | mant;
+    } else {
+        uint32_t biased_exp = res_exp + 127;
+        result = (sign_res << 31) | (biased_exp << 23) | (mant & 0x7FFFFF);
+    }
+
+    if (guard || round || sticky) {
+        flags |= FFLAG_NX;
+    }
+
+    *p_flags = flags;
+    return result;
+}
+
+static double half_to_float(uint16_t h) {
+    int sign   = (h >> 15) & 1;
+    int exp    = (h >> 10) & 0x1F;
+    uint32_t mant = h & 0x3FF;
+    double val;
+
+    if (exp == 0) {                     // 零 / 次正规
+        if (mant == 0) val = 0.0;
+        else           val = ldexp((double)mant, -24);   // mant * 2^{-24}
+    } else if (exp == 0x1F) {          // 无穷 / NaN
+        if (mant == 0) val = INFINITY;
+        else           val = NAN;
+    } else {                            // 正规数
+        val = ldexp((double)(mant | 0x400), exp - 25);   // (1.mant) * 2^{exp-15}
+    }
+    return sign ? -val : val;
+}
+
+static uint16_t float_to_half(double d, uint8_t rm) {
+    // 1. NaN 统一返回规范 NaN: 0x7E00
+    if (isnan(d)) return 0x7E00;
+
+    int sign = signbit(d);
+    double x = fabs(d);
+
+    // 2. 无穷
+    if (isinf(x)) return (sign << 15) | 0x7C00;
+
+    // 3. 零
+    if (x == 0.0) return sign << 15;
+
+    // 4. 上溢：> 65504
+    if (x > 65504.0) {
+        if (rm == RDN)      return sign ? 0xFC00 : 0x7BFF;   // -inf / +max
+        else if (rm == RUP) return sign ? 0xFBFF : 0x7C00;   // -max / +inf
+        else if (rm == RTZ) return sign ? 0xFBFF : 0x7BFF;   // ±max
+        else                return (sign << 15) | 0x7C00;     // RNE/RMM → ±inf
+    }
+
+    // 5. 下溢：< 最小次正规 2^{-24} ≈ 5.96e-8
+    if (x < 0x1p-24) {
+        if (rm == RUP)      return sign ? 0x8000 : 0x0001;   // -0 / +min
+        else if (rm == RDN) return sign ? 0x8001 : 0x0000;   // -min / +0
+        else if (rm == RTZ) return sign << 15;               // ±0
+        else { // RNE / RMM
+            if (x > 0x1p-25) return sign ? 0x8001 : 0x0001;
+            if (x < 0x1p-25) return sign << 15;
+            // exactly 0x1p-25
+            if (rm == RMM) return sign ? 0x8001 : 0x0001;
+            return sign << 15;  // RNE ties to even → 0
+        }
+    }
+
+    // 6. 正常/次正规范围：用 frexp 对齐到 11 位尾数
+    int e;
+    double frac = frexp(x, &e);         // x = frac * 2^e,  0.5 <= frac < 1
+    int half_exp = e + 14;              // 半精度偏置指数候选值
+    double half_frac = frac * 2048.0;   // 11‑bit 定点数 (范围 1024..2047)
+    
+    // 分离整数和小数部分
+    double int_part;
+    double rem = modf(half_frac, &int_part);
+    int64_t m = (int64_t)int_part;
+
+    // 根据舍入模式和符号决定增量 inc
+    int inc = 0;
+    if (rm == RTZ) {
+        inc = 0;
+    } else if (rm == RNE) {
+        if (rem > 0.5 || (rem == 0.5 && (m & 1))) inc = 1;
+    } else if (rm == RMM) {
+        if (rem >= 0.5) inc = 1;
+    } else if (rm == RDN) {
+        inc = sign ? ((rem > 0.0) ? 1 : 0) : 0;
+    } else if (rm == RUP) {
+        inc = sign ? 0 : ((rem > 0.0) ? 1 : 0);
+    }
+
+    m += inc;
+    if (m >= 2048) {     // 尾数溢出，向右规格化
+        m >>= 1;
+        half_exp++;
+    }
+
+    // 7. 处理最终指数：若 half_exp <= 0 则生成次正规数
+    if (half_exp <= 0) {
+        int shift = 1 - half_exp;          // 需要右移的位数
+        uint64_t round_bits = m & ((1ULL << shift) - 1);
+        bool half_bit = (shift > 0) && ((round_bits >> (shift - 1)) & 1);
+        bool sticky   = (round_bits & ((1ULL << (shift - 1)) - 1)) != 0;
+        
+        m >>= shift;
+        // 根据移位后的 bits 再行舍入（逻辑同上，但这里为简化直接取半调整）
+        int s_inc = 0;
+        if (rm == RNE)
+            s_inc = half_bit && ((m & 1) || sticky);
+        else if (rm == RMM)
+            s_inc = half_bit;
+        else if (rm == RDN)
+            s_inc = sign && (half_bit || sticky);
+        else if (rm == RUP)
+            s_inc = !sign && (half_bit || sticky);
+        // RTZ 不需要加
+
+        m += s_inc;
+        if (m >= 1024) {   // 次正规尾数溢出回正规数（最小正规数）
+            half_exp = 1;
+            m = 0;
+        }
+        return (sign << 15) | (uint16_t)(m & 0x3FF);
+    }
+
+    // 正常数：指数在 1..30 之间
+    if (half_exp > 30) {   // 再次检查上溢
+        return (sign << 15) | 0x7C00;
+    }
+    uint16_t mant10 = m & 0x3FF;               // 去掉隐含位
+    return (sign << 15) | (half_exp << 10) | mant10;
+}
+
+
+static inline void fp_update_fflags(CPU_State *cpu)
+{
+    cpu->csr[CSR_FFLAGS] |= softfloat_exceptionFlags;
+
+    uint8_t frm = (cpu->csr[CSR_FCSR] >> 5) & 0x7;
+    cpu->csr[CSR_FCSR] =
+        (frm << 5) |
+        (cpu->csr[CSR_FFLAGS] & 0x1f);
+}
+
+static inline float32_t f32_unbox(uint64_t fpr_val) {
+    float32_t r;
+    r.v = (uint32_t)fpr_val;
+    return r;
+}
+
+static inline int isNaNF32UI(uint32_t a)
+{
+    return (((a >> 23) & 0xff) == 0xff) && (a & 0x7fffff);
+}
+
+// 将 3 位 rm 编码转换为 SoftFloat 舍入常量
+// 若 rm 为 0，使用 csr.frm 动态值（调用者负责传入 csr.frm）
+static inline uint8_t rm_to_softfloat(uint8_t rm) {
+  
+    if (rm > 4) rm = 0;  // 降级为 RNE（保留值处理）
+
+    switch (rm) {
+        case 0: return softfloat_round_near_even;    // RNE
+        case 1: return softfloat_round_minMag;       // RTZ
+        case 2: return softfloat_round_min;          // RDN
+        case 3: return softfloat_round_max;          // RUP
+        case 4: return softfloat_round_near_maxMag;  // RMM
+        default: // rm == 5,6,7 动态保留
+            // 触发非法指令异常（此处简化，直接调用异常处理）
+            fprintf(stderr, "Illegal instruction: invalid rm=0b%03b\n", rm);
+    }
+}
+
+static inline bool softfloat_isSigNaNF32UI(uint32_t ui) {
+    // 1. 指数必须全1 (0xFF)
+    if ((ui & 0x7F800000) != 0x7F800000) return false;
+    // 2. 尾数不能全0 (否则是无穷大)
+    // 3. 尾数最高位 (bit 22) 必须为 0
+    return ((ui & 0x007FFFFF) != 0) &&        // 尾数非零
+           ((ui & 0x00400000) == 0);          // quiet bit = 0
+}
+
+static inline uint32_t softfloat_to_riscv_fflags(void)
+{
+    uint32_t flags = 0;
+
+    if (softfloat_exceptionFlags & softfloat_flag_inexact)
+        flags |= 0x01;        // NX
+
+    if (softfloat_exceptionFlags & softfloat_flag_underflow)
+        flags |= 0x02;        // UF
+
+    if (softfloat_exceptionFlags & softfloat_flag_overflow)
+        flags |= 0x04;        // OF
+
+    if (softfloat_exceptionFlags & softfloat_flag_infinite)
+        flags |= 0x08;        // DZ
+
+    if (softfloat_exceptionFlags & softfloat_flag_invalid)
+        flags |= 0x10;        // NV
+
+    return flags;
+}
+
+
+static inline float64_t d_unbox(uint64_t v) {
+    float64_t r;
+    r.v = v;
+    return r;
+}
+
+static inline uint64_t d_box(float64_t f) {
+    return f.v;
+}
+
+static inline uint64_t f32_box(uint32_t v)
+{
+    return 0xFFFFFFFF00000000ULL | v;
+}
+
+static inline uint64_t f16_box(uint16_t v)
+{
+    return 0xFFFFFFFFFFFF0000ULL | v;
+}
+
+static inline uint64_t f64_box(uint64_t v)
+{
+    return v; // double 不需要 NaN-boxing
+}
 
 void exec_float(CPU_State* cpu,uint32_t instr){
     uint8_t funct3 = (instr >> 12) & 0x7;
@@ -2217,73 +2765,569 @@ void exec_float(CPU_State* cpu,uint32_t instr){
 
     switch (funct7)
     {
-    case 0b1110000://fmv.x.w
+        case 0b0000000: //fadd.s
+        {
+            if(funct3 == 7){
+                funct3 = cpu->csr[CSR_FRM] & 0x7; 
+            }
+            softfloat_roundingMode = rm_to_softfloat(funct3);
+            softfloat_exceptionFlags = 0;
+            
+            float32_t a = f32_unbox(cpu->fgpr[rs1]);
+            float32_t b = f32_unbox(cpu->fgpr[rs2]);
+            float32_t result = f32_add(a, b);
+            cpu->fgpr[rd] = f32_box(result.v); //FLEN == 64
+            
+            cpu->csr[CSR_FFLAGS] |= softfloat_to_riscv_fflags();
+            
+             cpu->csr[CSR_FCSR] =
+            ((cpu->csr[CSR_FRM] & 0x7) << 5)
+            | (cpu->csr[CSR_FFLAGS] & 0x1f);
+                uint32_t exc = softfloat_to_riscv_fflags();
+            
+            if(log_enable){
+                fprintf(stderr,"[fadd.s] f[%d]:%f,f[%d]:%f,result:%f,fflags:0x%x\n",rd,f32_from_bits(a.v),rs2,f32_from_bits(b.v),f32_from_bits(result.v),exc);
+            }
+            break;
+        }
+        case 0b0000001: //fadd.d
+        {
+            if(funct3 == 0b000){
+                uint64_t a_bits = cpu->fgpr[rs1];
+                uint64_t b_bits = cpu->fgpr[rs2];
+
+                // 2. 转 softfloat
+                float64_t a = d_unbox(a_bits);
+                float64_t b = d_unbox(b_bits);
+
+                // 3. rounding mode
+                softfloat_roundingMode = rm_to_softfloat(funct3);
+
+                softfloat_exceptionFlags = 0;
+
+                // 4. 计算
+                float64_t result = f64_add(a, b);
+
+                // 5. 写回（double 不需要 NaN-boxing）
+                cpu->fgpr[rd] = d_box(result);
+
+                // 6. 更新 fflags
+                cpu->csr[CSR_FFLAGS] |= softfloat_exceptionFlags;
+                if(log_enable){
+                    fprintf(stderr,"[fadd.d] f[%d]:%lf,f[%d]:%lf,result:%lf\n",rd,a,rs2,b,result);
+                }
+            }
+            break;
+        }
+        case 0b0000010: //fadd.h
+        {
+            uint8_t rm = funct3;
+            uint16_t a_half = (uint16_t)(cpu->fgpr[rs1] & 0xFFFF);
+            uint16_t b_half = (uint16_t)(cpu->fgpr[rs2] & 0xFFFF);
+            float a = half_to_float(a_half);
+            float b = half_to_float(b_half);
+            float result = a + b;
+            uint16_t result_half = float_to_half(result,rm);
+            cpu->fgpr[rd] = f16_box(result_half);
+            if(log_enable){
+                fprintf(stderr,"[fadd.h] f[%d]:%f,f[%d]:%f,result:%f\n",rd,a,rs2,b,result);
+            }
+            
+            break;
+        }
+        case 0b0000011://fadd.q
+        {
+            if(funct3 == 0b000){
+                long double a = *(long double*)&cpu->fgpr[rs1];
+                long double b = *(long double*)&cpu->fgpr[rs2];
+                long double result = a + b;
+                cpu->fgpr[rd] = f64_box(*(uint64_t*)&result); // 注意：这里假设使用64位寄存器存储结果，实际可能需要调整
+                if(log_enable){
+                    fprintf(stderr,"[fadd.q] f[%d]:%Lf,f[%d]:%Lf,result:%Lf\n",rd,a,rs2,b,result);
+                }
+            }
+            break;
+        }
+        case 0b0000100: //fsub.s
+        {
+            if (funct3 == 7)
+                funct3 = (cpu->csr[CSR_FCSR] >> 5) & 0x7;
+
+            softfloat_roundingMode =
+            rm_to_softfloat(funct3);
+
+            softfloat_exceptionFlags = 0;
+
+            float32_t a = f32_unbox(cpu->fgpr[rs1]);
+            float32_t b = f32_unbox(cpu->fgpr[rs2]);
+
+            float32_t result = f32_sub(a, b);
+
+            // RV64 NaN-box
+            cpu->fgpr[rd] = f32_box(result.v);
+             
+            uint32_t exc = softfloat_to_riscv_fflags();
+
+            cpu->csr[CSR_FFLAGS] |= exc;
+
+            cpu->csr[CSR_FCSR] =
+                    ((cpu->csr[CSR_FRM] & 0x7) << 5)
+                        | (cpu->csr[CSR_FFLAGS] & 0x1f);
+            if(log_enable){
+                fprintf(stderr,"[fsub.s] f[%d]:%f,f[%d]:%f,result:%f,fflags:0x%x\n",rd,f32_from_bits(a.v),rs2,f32_from_bits(b.v),f32_from_bits(result.v),exc);
+            }
+            break;
+        }
+        case 0b0001000://fmul.s
+        {
+
+            if (funct3 == 7)
+                funct3 = (cpu->csr[CSR_FCSR] >> 5) & 0x7;
+
+            softfloat_roundingMode =
+            rm_to_softfloat(funct3);
+
+            softfloat_exceptionFlags = 0;
+
+            float32_t a = f32_unbox(cpu->fgpr[rs1]);
+            float32_t b = f32_unbox(cpu->fgpr[rs2]);
+
+            float32_t result = f32_mul(a, b);
+
+            // RV64 NaN-box
+            cpu->fgpr[rd] =
+                0xffffffff00000000ULL |
+                        result.v;
+
+            uint32_t exc = softfloat_to_riscv_fflags();
+
+            cpu->csr[CSR_FFLAGS] |= exc;
+
+            cpu->csr[CSR_FCSR] =
+                        ((cpu->csr[CSR_FRM] & 0x7) << 5)
+                            | (cpu->csr[CSR_FFLAGS] & 0x1f);
+            if(log_enable){
+                fprintf(stderr,"[fmul.s] f[%d]:%f,f[%d]:%f,result:%f,fflags:0x%x\n",rd,f32_from_bits(a.v),rs2,f32_from_bits(b.v),f32_from_bits(result.v),exc);
+            }
+            break;
+        }
+        case 0b10100:
+        {
+            if(funct3 == 0){//fmin.s
+  
+                float32_t a = f32_unbox(cpu->fgpr[rs1]);
+                float32_t b = f32_unbox(cpu->fgpr[rs2]);
+
+                softfloat_exceptionFlags = 0;   // 清空本次异常标志
+
+                bool a_isNaN = isNaNF32UI(a.v);
+                bool b_isNaN = isNaNF32UI(b.v);
+                bool a_isSig = softfloat_isSigNaNF32UI(a.v);
+                bool b_isSig = softfloat_isSigNaNF32UI(b.v);
+
+                float32_t res;
+
+                if (a_isNaN || b_isNaN) {
+                    // 若任一为信令 NaN，置 NV
+                    if (a_isSig || b_isSig) {
+                        softfloat_raiseFlags(softfloat_flag_invalid);
+                    }
+
+                    // 返回规则
+                    if (a_isNaN && b_isNaN) {
+                        res.v = 0x7FC00000;          // 规范 qNaN
+                    } else if (a_isNaN) {
+                        res = b;                     // a 是 NaN，返回 b
+                    } else {
+                        res = a;                     // b 是 NaN，返回 a
+                    }
+                } else {
+                    // 两者都不是 NaN，比较大小
+                    bool lt = f32_lt(a, b);         // a < b
+                    bool eq = f32_eq(a, b);         // a == b（包括 +0 == -0）
+
+                    if (lt) {
+                        res = a;
+                    } else if (f32_lt(b, a)) {
+                        res = b;
+                    } else {
+                        // 相等情况，需特别处理 ±0
+                        if ((a.v & 0x7FFFFFFF) == 0) {   // 都是零
+                            res.v = a.v | b.v;           // 保留负零（0x80000000）
+                        } else {
+                            res = a;                     // 任意一个，值相同
+                        }
+                    }
+                }
+
+                cpu->fgpr[rd] = f32_box(res.v);
+                fp_update_fflags(cpu);
+
+            }else if(funct3 == 1){//fmax.s
+                float32_t a = f32_unbox(cpu->fgpr[rs1]);
+                float32_t b = f32_unbox(cpu->fgpr[rs2]);
+
+                softfloat_exceptionFlags = 0;   // 清空本次异常标志
+
+                bool a_isNaN = isNaNF32UI(a.v);
+                bool b_isNaN = isNaNF32UI(b.v);
+                bool a_isSig = softfloat_isSigNaNF32UI(a.v);
+                bool b_isSig = softfloat_isSigNaNF32UI(b.v);
+
+                float32_t res;
+
+                if (a_isNaN || b_isNaN) {
+                    // 若任一为信令 NaN，置 NV
+                    if (a_isSig || b_isSig) {
+                        softfloat_raiseFlags(softfloat_flag_invalid);
+                    }
+
+                    // 返回规则（与 FMIN.S 对称）
+                    if (a_isNaN && b_isNaN) {
+                        res.v = 0x7FC00000;          // 两个 NaN 返回规范 qNaN
+                    } else if (a_isNaN) {
+                        res = b;                     // a 是 NaN，返回 b（非 NaN）
+                    } else {
+                        res = a;                     // b 是 NaN，返回 a
+                    }
+                } else {
+                    // 两者都不是 NaN，比较大小
+                    bool lt_a = f32_lt(a, b);       // a < b
+                    bool lt_b = f32_lt(b, a);       // b < a
+
+                    if (lt_b) {
+                        res = a;                     // a > b，返回 a
+                    } else if (lt_a) {
+                        res = b;                     // b > a，返回 b
+                    } else {
+                        // 相等情况，处理 ±0：应返回 +0
+                        if ((a.v & 0x7FFFFFFF) == 0) {   // 两者都是零
+                            res.v = a.v & b.v;           // 与操作保留正零（0x00000000）
+                        } else {
+                            res = a;                     // 任意一个，值相同
+                        }
+                    }
+                }
+
+                cpu->fgpr[rd] = f32_box(res.v);
+                fp_update_fflags(cpu);
+
+            }
+            break;
+        }
+        case 0b1100://fdiv.s
+        {
+            // 1. 从浮点寄存器中取出操作数（NaN‑boxing 截低 32 位）
+            float32_t a = f32_unbox(cpu->fgpr[rs1]);
+            float32_t b = f32_unbox(cpu->fgpr[rs2]);
+
+            // 2. 确定有效舍入模式
+            uint8_t rm = funct3;
+            if (rm == 0x7) {
+                rm = (cpu->csr[CSR_FCSR] >> 5) & 0x7;  // 动态舍入，取 fcsr.frm
+            }
+            softfloat_roundingMode = rm_to_softfloat(rm);
+
+            // 3. 清除全局异常标记，执行除法
+            softfloat_exceptionFlags = 0;
+            float32_t res = f32_div(a, b);
+
+            // 4. 结果 NaN‑boxing 写入 f[rd]
+            cpu->fgpr[rd] = f32_box(res.v);
+
+            // 5. 更新 fflags（累积异常标志）
+            fp_update_fflags(cpu);
+            
+            break;
+        }
+        case 0b101100:
+        {
+            if(rs2 == 0){//fsqrt.s
+
+            // 1. 取出源操作数（NaN‑boxing 截低 32 位）
+            float32_t a = f32_unbox(cpu->fgpr[rs1]);
+
+            // 2. 确定有效舍入模式
+            uint8_t rm = funct3;
+            if (rm == 0x7) {
+                rm = (cpu->csr[CSR_FCSR] >> 5) & 0x7;  // 动态舍入，取 fcsr.frm
+            }
+            softfloat_roundingMode = rm_to_softfloat(rm);
+
+            // 3. 清异常并执行平方根运算
+            softfloat_exceptionFlags = 0;
+            float32_t res = f32_sqrt(a);
+
+            // 4. NaN‑box 后写入 f[rd]
+            cpu->fgpr[rd] = f32_box(res.v);
+
+            // 5. 更新 fflags（累积异常）
+            fp_update_fflags(cpu);
+
+            }
+            break;
+        }
+        case 0b1010000:
+        {
+            if(funct3 == 0b010){//feq.s
+                float32_t a = f32_unbox(cpu->fgpr[rs1]);
+                float32_t b = f32_unbox(cpu->fgpr[rs2]);
+                softfloat_exceptionFlags = 0;
+
+                uint32_t res = f32_eq(a, b);
+                // NaN → NV + return 0（SoftFloat 已处理，但保险）
+                if (isNaNF32UI(a.v) || isNaNF32UI(b.v)) {
+                    softfloat_exceptionFlags |= softfloat_flag_invalid;
+                    res = 0;
+                }
+                cpu->gpr[rd] = res;
+                fp_update_fflags(cpu);
+           
+            }else if(funct3 == 0b001){ //flt.s
+                float32_t a = f32_unbox(cpu->fgpr[rs1]);
+                float32_t b = f32_unbox(cpu->fgpr[rs2]);
+
+                softfloat_exceptionFlags = 0;
+
+                uint32_t res = f32_lt(a, b);
+
+                if (isNaNF32UI(a.v) || isNaNF32UI(b.v)) {
+                    softfloat_exceptionFlags |= softfloat_flag_invalid;
+                    res = 0;
+                }
+
+                cpu->gpr[rd] = res;
+                fp_update_fflags(cpu);
+            }
+            else if(funct3 == 0){//fle.s
+                float32_t a = f32_unbox(cpu->fgpr[rs1]);
+                float32_t b = f32_unbox(cpu->fgpr[rs2]);
+
+                softfloat_exceptionFlags = 0;
+
+                uint32_t res = f32_le(a, b);
+
+                if (isNaNF32UI(a.v) || isNaNF32UI(b.v)) {
+                    softfloat_exceptionFlags |= softfloat_flag_invalid;
+                    res = 0;
+                }
+
+                cpu->gpr[rd] = res;
+                fp_update_fflags(cpu);
+            }
+            break;
+        }
+        case 0b1100000:
+        {
+            if(rs2 == 0){//fcvt.w.s
+                // 1. 取出浮点寄存器中的单精度值（NaN‑boxing 截低 32 位）
+                float32_t a = f32_unbox(cpu->fgpr[rs1]);
+
+                // 2. 确定有效舍入模式
+                uint8_t rm = funct3;               // 指令的静态 rm
+                if (rm == 0x7) {
+                    rm = (cpu->csr[CSR_FCSR] >> 5) & 0x7;  // 动态舍入，取 fcsr.frm
+                }
+                softfloat_roundingMode = rm_to_softfloat(rm); // 映射到 SoftFloat
+
+                // 3. 清异常并执行转换（关键调用）
+                softfloat_exceptionFlags = 0;
+                int32_t result = f32_to_i32(a, softfloat_roundingMode, true); // 第三个参数 true=精确无效检查
+
+                // 4. 写回整数寄存器（RV64 需要符号扩展）
+                cpu->gpr[rd] = (int64_t)result;    // RV64 符号扩展，RV32 直接 result
+
+                // 5. 更新 fflags（可能产生 NV 或 NX）
+                fp_update_fflags(cpu);
+
+            }else if(rs2 == 1){//fcvt.wu.s
+                // 1. 取出浮点值（NaN‑boxing 处理）
+                float32_t a = f32_unbox(cpu->fgpr[rs1]);
+
+                // 2. 确定有效舍入模式
+                uint8_t rm = funct3;
+                if (rm == 0x7) {
+                    rm = (cpu->csr[CSR_FCSR] >> 5) & 0x7;
+                }
+                softfloat_roundingMode = rm_to_softfloat(rm);
+
+                // 3. 清异常并执行转换（关键调用）
+                softfloat_exceptionFlags = 0;
+                uint32_t result = f32_to_ui32(a, softfloat_roundingMode, true); // 精确无效检查
+
+                // 4. 写回整数寄存器（RV64 零扩展）
+                cpu->gpr[rd] = (uint64_t)result;  // RV64，高位自动填 0
+
+                // 5. 更新 fflags（可能产生 NV 或 NX）
+                fp_update_fflags(cpu);
+            }
+            break;
+        }
+        case 0b1101000:
+        {
+            if(rs2 == 0){ //fcvt.s.w
+                int32_t int_val = (int32_t)cpu->gpr[rs1];
+                uint8_t rm = funct3;
+                if (rm == 0x7) {
+                    rm = (cpu->csr[CSR_FCSR] >> 5) & 0x7;  // 动态舍入，取 fcsr.frm
+                }
+                softfloat_roundingMode = rm_to_softfloat(rm);
+                softfloat_exceptionFlags = 0;
+                float32_t res = i32_to_f32(int_val);
+                cpu->fgpr[rd] = f32_box(res.v);
+                fp_update_fflags(cpu);
+                if(log_enable){
+                    fprintf(stderr,"csr_fcsr:0x%16lx,fgpr[%d]:0x%16lx\n",cpu->csr[CSR_FCSR],rd,cpu->fgpr[rd]);
+                }
+            }else if(rs2 == 1){//fcvt.s.wu
+                uint32_t src = (uint32_t)cpu->gpr[rs1];      
+                uint8_t rm = funct3;
+                if (rm == 0x7) {
+                    rm = cpu->csr[CSR_FRM] & 0x7;  // 动态舍入，取 fcsr.frm
+                }
+                softfloat_roundingMode = rm_to_softfloat(rm);
+                softfloat_exceptionFlags = 0;
+                float32_t res = ui32_to_f32(src);
+                cpu->fgpr[rd] = f32_box(res.v);
+                fp_update_fflags(cpu);
+            }else if(rs2 == 0b10){//fcvt.s.l
+                int64_t src = (int64_t)cpu->gpr[rs1];
+                        uint8_t rm = funct3;
+                if (rm == 0x7) {
+                    rm = (cpu->csr[CSR_FCSR] >> 5) & 0x7;  // 动态舍入，取 fcsr.frm
+                }
+                softfloat_roundingMode = rm_to_softfloat(rm);
+                softfloat_exceptionFlags = 0;
+                float32_t res = i64_to_f32(src);
+                cpu->fgpr[rd] = f32_box(res.v);
+                fp_update_fflags(cpu);
+            }else if(rs2 == 0b11){//fcvt.s.lu
+                uint64_t src = (uint64_t)cpu->gpr[rs1];
+                uint8_t rm = funct3;
+                if (rm == 0x7) {
+                    rm = (cpu->csr[CSR_FCSR] >> 5) & 0x7;  // 动态舍入，取 fcsr.frm
+                }
+                softfloat_roundingMode = rm_to_softfloat(rm);
+                softfloat_exceptionFlags = 0;
+                float32_t res = ui64_to_f32(src);
+                cpu->fgpr[rd] = f32_box(res.v);
+                fp_update_fflags(cpu);
+            }
+            break;
+        }
+        case 0b1110000:
         { 
-        if(rs2 == 0 && funct3 == 0){
-            uint32_t float_bits = cpu->fgpr[rs1] & 0xFFFFFFFF;
-            int64_t float_datas = (int64_t)((int32_t)float_bits);
-            cpu->gpr[rd] = float_datas;
-        if(log_enable){
-        fprintf(stderr,"[fmv.x.w] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
-                    rs1,cpu->fgpr[rs1]);
+            if(rs2 == 0 && funct3 == 0){//fmv.x.w
+               uint32_t bits = (uint32_t)cpu->fgpr[rs1];   // 取低 32 位（NaN‑boxing 已包含高 32 位全 1，截断即得单精度位模式）
+                cpu->gpr[rd] = (int32_t)bits;                // 符号扩展（RV64），RV32 则直接赋值
+                if(log_enable){
+                    fprintf(stderr,"[fmv.x.w] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
+                            rs1,cpu->fgpr[rs1]);
+                }
+            }else if(rs2 == 0 && funct3 == 1){ //fclass.s
+                float32_t a = f32_unbox(cpu->fgpr[rs1]);
+
+                uint32_t v = a.v;
+
+                bool sign = (v >> 31) & 1;
+                uint32_t exp = (v >> 23) & 0xFF;
+                uint32_t frac = v & 0x7FFFFF;
+
+                uint32_t class;
+                if (exp == 0xFF) {          // 指数全 1
+                    if (frac == 0) {        // 尾数全 0 → 无穷
+                    class = sign ? (1 << 0) : (1 << 7);   // 负无穷: bit0, 正无穷: bit7
+                } else {                // NaN
+                // quiet 位是 bit 22
+                if (frac & 0x400000) {
+                class = (1 << 9);    // quiet NaN: bit9
+                } else {
+                class = (1 << 8);    // signaling NaN: bit8
+                }
+                }
+                } else if (exp == 0) {      // 指数全 0
+                if (frac == 0) {        // 零
+                class = sign ? (1 << 3) : (1 << 4);   // -0: bit3, +0: bit4
+                } else {                // 非规约数
+                class = sign ? (1 << 2) : (1 << 5);   // 负: bit2, 正: bit5
+                }
+                } else {                    // 规约数
+                class = sign ? (1 << 1) : (1 << 6);       // 负: bit1, 正: bit6
+                }
+                cpu->gpr[rd] = class;
+                if(log_enable){
+                fprintf(stderr,"[fclass.s] f[%d]:%f,class:0x%02x\n",rd,f32_from_bits(a.v),class);
+                }
+
+                }
+                break;
         }
-            }
-        break;
-        }
-    case 0b1111000: //fmv.w.x
-    {
-        if(rs2 == 0 && funct3 == 0){
-            uint32_t origin_bits = cpu->gpr[rs1] & 0xFFFFFFFF;
-            cpu->fgpr[rd] = origin_bits;
-        if(log_enable){
-        fprintf(stderr,"[fmv.w.x] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
-                    rs1,cpu->fgpr[rs1]);
-        }
-        }
-        break;
-    }
-    case 0b1110001://fmv.x.d
-    {
-        if(rs2 == 0 && funct3 == 0){
-            cpu->gpr[rd] = cpu->fgpr[rs1];
+        case 0b1111000: //fmv.w.x
+        {
+            if(rs2 == 0 && funct3 == 0){
+                uint32_t origin_bits = cpu->gpr[rs1] & 0xFFFFFFFF;
+                if (((origin_bits >> 23) == 0xff) && (origin_bits & 0x7fffff)) {
+                    origin_bits = 0x7fc00000;
+                }
+                cpu->fgpr[rd] = 0xffffffff00000000ULL | (uint64_t)origin_bits;
             if(log_enable){
-            fprintf(stderr,"[fmv.x.d] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
-                        rs1,cpu->fgpr[rs1]);
+                fprintf(stderr,"[fmv.w.x] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
+                            rs1,cpu->fgpr[rs1]);
+                }
             }
+            break;
         }
-        break;
-    }
-    case 0b1111001://fmv.d.x
-    {
-        if(rs2 == 0 && funct3 == 0){
-            cpu->fgpr[rd] = cpu->gpr[rs1];
-            if(log_enable){
-            fprintf(stderr,"[fmv.d.x] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
-                        rs1,cpu->fgpr[rs1]);
+        case 0b1110001://fmv.x.d
+        {
+            if(rs2 == 0 && funct3 == 0){
+                cpu->gpr[rd] = cpu->fgpr[rs1];
+                if(log_enable){
+                fprintf(stderr,"[fmv.x.d] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
+                            rs1,cpu->fgpr[rs1]);
+                }
             }
+            break;
         }
-        break;
-    }
-    default:
-        break;
-    }
-    cpu->pc += 4;
+        case 0b1111001://fmv.d.x
+        {
+            if(rs2 == 0 && funct3 == 0){
+                cpu->fgpr[rd] = cpu->gpr[rs1];
+                if(log_enable){
+                fprintf(stderr,"[fmv.d.x] x[%d]:0x%16lx,f[%d]:0x%16lx\n",rd,cpu->gpr[rd],
+                            rs1,cpu->fgpr[rs1]);
+                }
+            }
+            break;
+        }
+        default:
+            break;
+        }
+        cpu->pc += 4;
 }
 
 
 void exec_wfi(CPU_State* cpu,uint32_t instr){
 
     static bool is_wfi = false;
-    cpu->pc += 4;
+    if(cpu->privilege <= 1){
+        if(cpu->csr[CSR_MIDELEG] & (1 << 5)){
+            if(cpu->csr[CSR_SIE] & SIE_STIE){
+                if(cpu->csr[CSR_SIP] & SIP_STIP)
+                    cpu->pc += 4;
+            }
+        }
+    }
+    
+
+    /*
     pthread_mutex_lock(&cpu->lock);
     cpu->halted = true;
     if(!is_wfi){
         fprintf(stderr,"[WFI]: No enabled interrupts pending j:%ld\n", j);
-     
         is_wfi = true;
     }
     pthread_mutex_unlock(&cpu->lock);
-    
+    */
 }
 void exec_rem(CPU_State *cpu,uint32_t instr){ 
     uint64_t rs1 = (instr >> 15) & 0x1F;
@@ -2554,7 +3598,7 @@ void exec_divu(CPU_State *cpu,uint32_t instr){
 
     cpu->pc += 4;
     if(log_enable){
-    fprintf(stderr,"[remu] x[%d]:0x%016lx,x[%d]:0x%016lx,x[%d]:0x%016lx\n",
+    fprintf(stderr,"[divu] x[%d]:0x%016lx,x[%d]:0x%016lx,x[%d]:0x%016lx\n",
             rd,cpu->gpr[rd],rs1,cpu->gpr[rs2],rd,cpu->gpr[rs2]
     );
     }
@@ -2660,13 +3704,11 @@ void exec_sret(CPU_State *cpu,uint32_t instr){
     }
 
     // 1. 从 sepc 寄存器获取返回地址 -> pc
-    uint64_t sepc = cpu->csr[CSR_SEPC];
-
-
-    // 验证 sepc 对齐（最低位必须为 0
-    if(sepc & 0x1){
-        return ;
-    }
+    uint64_t sepc = 0;
+    if(cpu->v == false)
+        sepc = cpu->csr[CSR_SEPC];
+    else
+        sepc = cpu->vsepc;
 
     if(log_enable){
         fprintf(stderr,"[sret] sepc:0x%16lx\n",sepc);
@@ -2675,9 +3717,19 @@ void exec_sret(CPU_State *cpu,uint32_t instr){
     cpu->pc = sepc;
 
     // 2. 从 sstatus 寄存器spp恢复特权级
-    uint64_t sstatus = cpu->csr[CSR_SSTATUS];
+    uint64_t sstatus = 0;
+    if(cpu->v == false)
+        sstatus = cpu->csr[CSR_SSTATUS];
+    else
+        sstatus = cpu->vsstatus;
+    
     uint64_t spp = (sstatus >> 8) & 0x1;  // SPP 位
     cpu->privilege = (spp == 1) ? 1 : 0;
+
+    if(cpu->v == false){
+        cpu->v = !!(cpu->csr[HSTATUS] & HSTATUS_SPV);
+        cpu->csr[HSTATUS] &= ~(HSTATUS_SPV);
+    }
 
      // 3.清除 SPP 位（设置为 0，表示来自 U 模式）
     sstatus &= ~(1L << 8);
@@ -2690,13 +3742,242 @@ void exec_sret(CPU_State *cpu,uint32_t instr){
      // 5.清除 SPIE 位
     sstatus &= ~(1L << 5);
     
+    
+    if(log_enable){
+        printf("[sret] pri:%d\n",cpu->privilege);
+    }
+
     // 更新 sstatus
-    cpu->csr[CSR_SSTATUS] = sstatus;
+    if(cpu->v == false)
+        cpu->csr[CSR_SSTATUS] = sstatus;
+    else
+        cpu->vsstatus = sstatus;
 
+}
+
+
+void exec_flw(CPU_State *cpu,uint32_t instr){
+    uint8_t rd  = (instr >> 7) & 0x1F;
+    uint8_t rs1 = (instr >> 15) & 0x1F;
 
     
-    printf("[sret] privilege:%d,sstatus:0x%16lx\n",cpu->privilege,cpu->csr[CSR_SSTATUS]);
-    printf("[sret] Returning to address: 0x%16lx\n", cpu->pc);
-    
+    int32_t imm = (int32_t)instr >> 20;
 
+    int64_t addr = (int64_t)cpu->gpr[rs1] + imm;
+
+    if(log_enable){
+        fprintf(stderr,"[before flw] Loading float value from address: 0x%16lx into f[%d]\n", addr, rd);
+    }
+
+    int64_t pa = get_pa(cpu, addr, ACC_LOAD);
+    if(pa == 0) return;
+    if(log_enable){
+        fprintf(stderr,"[flw] Physical address: 0x%16lx\n", pa);
+    }
+
+    uint32_t data = bus_read(&cpu->bus, pa, 4);
+    
+    if (rd != 0) {
+        cpu->fgpr[rd] = 0xffffffff00000000ULL | (uint64_t)data;
+    }
+
+    cpu->pc += 4;
+    if(log_enable){
+        fprintf(stderr,"[flw] Loaded float value: 0x%16lx from address: 0x%16lx into f[%d]\n",
+                cpu->fgpr[rd], addr, rd);
+    }
+ 
+}
+
+void exec_43(CPU_State *cpu,uint32_t instr){//fmadd.s
+
+    uint8_t rs1 = (instr >> 15) & 0x1F;
+    uint8_t rs2 = (instr >> 20) & 0x1F;
+    uint8_t rs3 = (instr >> 27) & 0x1F;
+    uint8_t rd = (instr >> 7) & 0x1F;
+    uint8_t funct3 = (instr >> 12) & 0x7;
+
+    // 1. 取三个源操作数（NaN‑boxing 截低 32 位）
+    float32_t a = f32_unbox(cpu->fgpr[rs1]);
+    float32_t b = f32_unbox(cpu->fgpr[rs2]);
+    float32_t c = f32_unbox(cpu->fgpr[rs3]);
+
+    // 2. 确定有效舍入模式
+    uint8_t rm = funct3;
+    if (rm == 0x7) {
+        rm = (cpu->csr[CSR_FCSR] >> 5) & 0x7;  // 动态舍入
+    }
+    softfloat_roundingMode = rm_to_softfloat(rm);
+
+    // 3. 清异常，执行融合乘加
+    softfloat_exceptionFlags = 0;
+    float32_t res = f32_mulAdd(a, b, c);
+
+    // 4. 结果 NaN‑box 写入 f[rd]
+    cpu->fgpr[rd] = f32_box(res.v);
+
+    // 5. 更新 fflags（可能产生 NV, NX, OF, UF, DZ 等）
+    fp_update_fflags(cpu);
+    cpu->pc += 4;
+}
+
+void exec_4f(CPU_State *cpu,uint32_t instr){//fnmadd.s
+    uint8_t rs1 = (instr >> 15) & 0x1F;
+    uint8_t rs2 = (instr >> 20) & 0x1F;
+    uint8_t rs3 = (instr >> 27) & 0x1F;
+    uint8_t rd = (instr >> 7) & 0x1F;
+    uint8_t funct3 = (instr >> 12) & 0x7;
+
+    // 1. 取三个源操作数（NaN‑boxing）
+    float32_t a = f32_unbox(cpu->fgpr[rs1]);
+    float32_t b = f32_unbox(cpu->fgpr[rs2]);
+    float32_t c = f32_unbox(cpu->fgpr[rs3]);
+
+    // 2. 确定有效舍入模式
+    uint8_t rm = funct3;
+    if (rm == 0x7) {
+        rm = (cpu->csr[CSR_FCSR] >> 5) & 0x7;  // 动态舍入
+    }
+    softfloat_roundingMode = rm_to_softfloat(rm);
+
+    // 3. 清异常，执行融合乘加 a*b + c
+    softfloat_exceptionFlags = 0;
+    float32_t res = f32_mulAdd(a, b, c);
+
+    // 4. 取负：翻转符号位（对 NaN 也可）
+    res.v ^= 0x80000000;
+
+    // 5. 结果 NaN‑box 写入 f[rd]
+    cpu->fgpr[rd] = f32_box(res.v);
+
+    // 6. 更新 fflags
+    fp_update_fflags(cpu);
+
+    cpu->pc += 4;
+}
+
+void exec_47(CPU_State *cpu,uint32_t instr){ //fmsub.s
+
+    uint8_t rs1 = (instr >> 15) & 0x1F;
+    uint8_t rs2 = (instr >> 20) & 0x1F;
+    uint8_t rs3 = (instr >> 27) & 0x1F;
+    uint8_t rd = (instr >> 7) & 0x1F;
+    uint8_t funct3 = (instr >> 12) & 0x7;
+
+    // 1. 取三个源操作数（NaN‑boxing）
+    float32_t a = f32_unbox(cpu->fgpr[rs1]);
+    float32_t b = f32_unbox(cpu->fgpr[rs2]);
+    float32_t c = f32_unbox(cpu->fgpr[rs3]);
+
+    // 2. 对 c 取负（翻转符号位，对 0/NaN 均安全）
+    c.v ^= 0x80000000;
+
+    // 3. 确定有效舍入模式
+    uint8_t rm = funct3;
+    if (rm == 0x7) {
+        rm = (cpu->csr[CSR_FCSR] >> 5) & 0x7;
+    }
+    softfloat_roundingMode = rm_to_softfloat(rm);
+
+    // 4. 清异常，执行融合操作 a*b + (-c)
+    softfloat_exceptionFlags = 0;
+    float32_t res = f32_mulAdd(a, b, c);
+
+    // 5. NaN‑box 后写入 f[rd]
+    cpu->fgpr[rd] = f32_box(res.v);
+
+    // 6. 更新 fflags
+    fp_update_fflags(cpu);
+
+    cpu->pc += 4;
+}
+
+void exec_4b(CPU_State *cpu,uint32_t instr){//fnmsub.s
+    uint8_t rs1 = (instr >> 15) & 0x1F;
+    uint8_t rs2 = (instr >> 20) & 0x1F;
+    uint8_t rs3 = (instr >> 27) & 0x1F;
+    uint8_t rd = (instr >> 7) & 0x1F;
+    uint8_t funct3 = (instr >> 12) & 0x7;
+
+    // 1. 取三个源操作数（NaN‑boxing）
+    float32_t a = f32_unbox(cpu->fgpr[rs1]);
+    float32_t b = f32_unbox(cpu->fgpr[rs2]);
+    float32_t c = f32_unbox(cpu->fgpr[rs3]);
+
+    // 2. 对 a 取负（翻转符号位，对 0/NaN 均安全）
+    a.v ^= 0x80000000;
+
+    // 3. 确定有效舍入模式
+    uint8_t rm = funct3;
+    if (rm == 0x7) {
+        rm = (cpu->csr[CSR_FCSR] >> 5) & 0x7;
+    }
+    softfloat_roundingMode = rm_to_softfloat(rm);
+
+    // 4. 清异常，执行融合操作 (-a)*b + c
+    softfloat_exceptionFlags = 0;
+    float32_t res = f32_mulAdd(a, b, c);
+
+    // 5. NaN‑box 后写入 f[rd]
+    cpu->fgpr[rd] = f32_box(res.v);
+
+    // 6. 更新 fflags
+    fp_update_fflags(cpu);
+
+    cpu->pc += 4;
+}
+
+
+void exec_27(CPU_State *cpu,uint32_t instr){
+    uint8_t rs1 = (instr >> 15) & 0x1F;
+    uint8_t rs2 = (instr >> 20) & 0x1F;
+    uint8_t funct3 = (instr >> 12) & 0x7;
+    uint16_t imm12 = ((instr >> 7) & 0x1F) |
+                    ((instr >> 25) & 0x3F) << 5;
+    int64_t imm = (int64_t)(int32_t)imm12;
+
+    uint64_t addr = cpu->gpr[rs1] + imm; 
+
+    uint64_t pa = get_pa(cpu, addr, ACC_STORE);
+    if(pa == 0) return;
+
+    if(funct3 == 0b010){ //fsw
+
+    //  从浮点寄存器中取出 32 位值（NaN‑boxing 截低 32 位）
+    uint32_t data = (uint32_t)cpu->fgpr[rs2];         // 直接取低 32 位
+    
+    bus_write(&cpu->bus,pa,data,4);
+    if(log_enable){
+        fprintf(stderr,"[fsw] addr:0x%16lx,data:0x%08x\n",addr,data);
+    }
+    }else if(funct3 == 0b011){ //fsd
+
+        //  从浮点寄存器中取出 64 位值
+        uint64_t data = cpu->fgpr[rs2];    
+
+        bus_write(&cpu->bus,pa,data,8);
+        if(log_enable){
+            fprintf(stderr,"[fsd] addr:0x%16lx,data:0x%016lx\n",addr,data);
+        }
+    }
+    cpu->pc += 4;
+}
+
+void exec_hfence(CPU_State* cpu,uint32_t instr){
+
+    uint8_t rs2 = (instr >> 7) & 0x1F;
+    uint8_t vmid = cpu->gpr[rs2];
+
+     for (int i = 0; i < TLB_SIZE; i++) {
+        TLBEntry *e = &cpu->tlb.entries[i];
+        if (!e->valid) continue;
+
+        // 匹配 VMID（若 vmid=0 表示全局刷新，所有包含该 vmid 的条目均失效）
+        if (vmid != 0 && e->vmid != vmid) continue;
+        // 若指定了 GPA，需进一步检查：但由于条目存的是 GVA，无法直接匹配 GPA，可以忽略。
+        // 简单实现：只要 vmid 匹配，全部刷掉，以确保正确性。
+        e->valid = 0;
+     }
+
+     cpu->pc += 4;
 }

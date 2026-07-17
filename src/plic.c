@@ -2,6 +2,7 @@
 #include "cpu.h"
 #include "memory.h"
 
+PLICState plic;
 extern CPU_State cpu[MAX_CORES];
 extern int log_enable;
 // 验证 IRQ 号是否有效

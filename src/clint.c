@@ -141,20 +141,22 @@ void clint_update_interrupts(CLINT* clint) {
     
 
     if(cpu[0].csr[CSR_MENVCFG] & (1L << 63)){ //sstc expanded timer support
-    clint->stimecmp = cpu[0].csr[CSR_STIMECMP];
+        clint->stimecmp = cpu[0].csr[CSR_STIMECMP];
     }
-    if(j == 423253676){
-        printf("[clint_update_interrupts] clint->time:%ld vs clint->stimecmp:%ld\n",clint->mtime,clint->stimecmp);
+    if(log_enable)
+    {
+        printf("[clint] mtime:0x%16lx stimecmp:0x%16lx\n",clint->mtime,clint->stimecmp);
     }
 
     if(cpu[0].csr[CSR_MCOUNTERN] & (1 << 1)){ //
-    bool new_stimer_interrupt = (clint->mtime >= clint->stimecmp);
-    if( new_stimer_interrupt){
-        cpu[0].csr[CSR_MIP] |= MIP_STIP; // 设置机器模式定时器中断挂起位
-    } else {
-            cpu[0].csr[CSR_MIP] &= ~MIP_STIP; // 清除机器模式定时器中断挂起位
-    }
-    cpu[0].csr[CSR_SIP] =  cpu[0].csr[CSR_MIP]; // S模式中断挂起位跟随 MIP
+        bool new_stimer_interrupt = (clint->mtime >= clint->stimecmp);
+        if( new_stimer_interrupt){
+    
+            cpu[0].csr[CSR_MIP] |= MIP_STIP; // 设置机器模式定时器中断挂起位
+        } else {
+                cpu[0].csr[CSR_MIP] &= ~MIP_STIP; // 清除机器模式定时器中断挂起位
+        }
+        cpu[0].csr[CSR_SIP] =  cpu[0].csr[CSR_MIP]; // S模式中断挂起位跟随 MIP
     }
 
 
@@ -164,8 +166,9 @@ void clint_update_interrupts(CLINT* clint) {
 void clint_tick(CLINT* clint, uint64_t cycles) {
     if (!clint || cycles == 0) return;
     
-    clint->mtime += cycles;
-    
+    clint->mtime += cycles; 
+   
+   //clint->mtime = cycles;
     // 检查是否触发中断
     clint_update_interrupts(clint);
 }

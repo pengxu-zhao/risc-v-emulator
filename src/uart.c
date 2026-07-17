@@ -9,6 +9,7 @@
 #include <ctype.h>
 extern int log_enable;
 extern CPU_State cpu[MAX_CORES];
+extern PLICState plic;
 static void uart_update_lsr(UARTDevice *u) {
     u->lsr = 0;
     if (u->rx_count > 0) u->lsr |= LSR_DR;
@@ -88,10 +89,13 @@ void uart_update_irq_old(UARTDevice* uart) {
 
 void uart_start_tx(UARTDevice *u, uint8_t ch)
 {
-    // 直接打印
-    putchar(ch);
-    fflush(stdout);
 
+
+    //fprintf(stderr, "[UART TX] %c (0x%02X)\n", isprint(ch) ? ch : '.', ch);
+    // 直接打印
+    //putchar(ch);
+    //fflush(stdout);
+    write(STDERR_FILENO, &ch, 1);
     // 模拟“发送完成”
     uart_tx_complete(u);
 }
@@ -111,6 +115,7 @@ void uart_tx_complete(UARTDevice *u)
         }
 
         if (u->irq_cb) {
+            u->iir = 0x2;
             u->irq_cb(u->cpu_opaque, 1, u->irq_num);
         }
     }
@@ -316,7 +321,7 @@ static void *uart_rx_thread(void *arg) {
                 continue;
             }
             rx_buf_push(u, buf[i]);
-            printf("RX thread got: %c\n", buf[i]);
+            //printf("RX thread got: %c\n", buf[i]);
             fflush(stdout);
          
         }

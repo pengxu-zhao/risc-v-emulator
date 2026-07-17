@@ -6,7 +6,34 @@
 #include "common.h"
 #include "cpu.h"
 
-// 基础整数指令 (I扩展)
+#define INFINITY (__builtin_inff())
+#define NAN (__builtin_nanf(""))
+
+
+// fcsr 标志位
+#define FFLAG_NX 0x01
+#define FFLAG_UF 0x02
+#define FFLAG_OF 0x04
+#define FFLAG_DZ 0x08
+#define FFLAG_NV 0x10
+
+
+// 舍入模式编码（与 RISC‑V frm 一致）
+enum {
+    RNE = 0,  // round to nearest, ties to even
+    RTZ = 1,  // round towards zero
+    RDN = 2,  // round down (towards -inf)
+    RUP = 3,  // round up (towards +inf)
+    RMM = 4   // round to nearest, ties to max magnitude
+};
+
+typedef struct {
+    uint32_t sign : 1;
+    uint32_t exp  : 8;
+    uint32_t mant : 23;   // 隐含位不存
+} float_bits_t;
+
+
 void exec_lui(CPU_State* cpu, uint32_t instruction);
 void exec_auipc(CPU_State* cpu, uint32_t instruction);
 void exec_jal(CPU_State* cpu, uint32_t instruction);
@@ -67,4 +94,11 @@ void exec_sra(CPU_State *cpu,uint32_t instr);
 void exec_mulh(CPU_State *cpu,uint32_t instr);
 void exec_mulhsu(CPU_State *cpu,uint32_t instr);
 void exec_rem(CPU_State *cpu,uint32_t instr);
+void exec_flw(CPU_State *cpu,uint32_t instr);
+void exec_43(CPU_State *cpu,uint32_t instr);
+void exec_4f(CPU_State *cpu,uint32_t instr);
+void exec_47(CPU_State *cpu,uint32_t instr);
+void exec_4b(CPU_State *cpu,uint32_t instr);
+void exec_27(CPU_State *cpu,uint32_t instr);
+void exec_hfence(CPU_State* cpu,uint32_t instr);
 #endif // INSTRUCTIONS_H

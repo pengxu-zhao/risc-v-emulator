@@ -1,5 +1,5 @@
 #include "mmu.h"
-
+#include "trap.h"
 extern int j ;
 extern int log_enable;
 
@@ -14,38 +14,68 @@ static inline void handle_fault(CPU_State *cpu, FaultCtx *f)
 {
 
     uint64_t ret = 0;
-
+    uint64_t cause = 0;
     cpu->mem_fault.valid = 1;
     cpu->mem_fault.vaddr = f->va;
     cpu->mem_fault.acc_type = f->acc_type;
+    bool is_stage2 = false;
 
-    
-    // ===== 关键：统一转 ISA fault =====
-    switch (f->acc_type) {
+    if(f->src == MMU_FAULT_PAGE){
+        switch (f->acc_type) {
+            case ACC_FETCH:
+                cause = 12;
+                break;
+            case ACC_LOAD:
+                cause = 13;
+                break;
+            case ACC_STORE:
+                cause = 15;
+                break;
+        }
+    }else if(f->src >= GSTAGE_FAULT_INST){
+        is_stage2 = true;
+        switch (f->acc_type) {
         case ACC_FETCH:
-            cpu->mem_fault.cause = 0x12;
+            cause = 20;
             break;
         case ACC_LOAD:
-            cpu->mem_fault.cause = 0x13;
+            cause = 21;
             break;
         case ACC_STORE:
-            cpu->mem_fault.cause = 0x15;
+            cause = 23;
             break;
+        }
+    }
+    cpu->mem_fault.cause = cause;
+
+    cpu->csr[CSR_STVAL] = f->va;
+    cpu->csr[HTVAL] = f->va;
+
+    if(!is_stage2 && cpu->v){
+        cpu->csr[HSTATUS] |= HSTATUS_GVA;
+    }else{
+        cpu->csr[HSTATUS] &= ~HSTATUS_GVA;
     }
 
-    if( (1 << cpu->mem_fault.cause) & cpu->csr[CSR_MEDELEG]){ //s mode
-        take_smode_fault(cpu,cpu->mem_fault.cause,false);
-    
+    cpu->csr[HTINST] = 0;
+
+    if(log_enable)
+        printf("[H] :%d,V:%d\n",cpu->h_extension,cpu->v);
+
+    if(cpu->h_extension && cpu->v){
+        if(cause >=12 && cause <= 15 && (cpu->csr[HIDELEG] & (1 << cause))){
+            take_vsmode_trap(cpu,cause,false);
+        }else{
+            take_smode_trap(cpu,cause,false);
+        }
     }else{
-        take_mmode_fault(cpu,cpu->mem_fault.cause,false);
+        if((1 << cause) & cpu->csr[MIDELEG_MEI]){
+            take_smode_trap(cpu,cause,false);
+        }else{
+            take_mmode_trap(cpu,cause,false);
+        }
     }
 
-    if(f->acc_type == ACC_FETCH){
-        ret = cpu->pc;
-    }else{
-        ret = cpu->mem_fault.vaddr;
-    }
-    return ret;
 }
 
 // -------------------- 物理内存访问（直接使用物理地址，不走 mmu） --------------------
@@ -101,7 +131,8 @@ uint64_t phys_read_u64(CPU_State *cpu, uint64_t pa){
     return value;
 }
 
-int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint8_t* flags){
+int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint8_t* flags,
+                PageSize *psize){
     /*
     38        30 29        21 20        12 11         0
     +----------+-----------+-----------+------------+
@@ -126,9 +157,9 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
 
     */
     static int depth = 0;
-    PageSize psize = PAGE_4KB;
+   // PageSize psize = PAGE_4KB;
     cpu->satp = cpu->csr[CSR_SATP];
-   
+    cpu->sum = (cpu->csr[CSR_SSTATUS] & SSTATUS_SUM) ? 1 : 0;
 
     if( (cpu->satp >> 60 ) != 8){ //0:bare 8:sv39
         *out_pa = va;
@@ -137,7 +168,7 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
 
     uint64_t satp_ppn = cpu->satp & (( 1ULL << 44 ) - 1 );
     uint64_t table_addr = (satp_ppn << 12);
-    
+
     int i = SV39_LEVELS - 1;
 
     while(1){
@@ -182,7 +213,8 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
             
             if ((pte & PTE_U) != 0) {
                 
-                if (!cpu->sum) return MMU_FAULT_PAGE;
+                if (!cpu->sum) {
+                    return MMU_FAULT_PAGE;}
                 if (acc_type == ACC_FETCH) return MMU_FAULT_PAGE;
             }
         }
@@ -258,16 +290,16 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
         {
             case 2:  
                 pa = (((pte >> 28) & 0x3FFFFFF) << 30) | (va & 0x3FFFFFF); 
-                psize = PAGE_1GB;
+                *psize = PAGE_1GB;
                 break;
             case 1:  
                 pa = (((pte >> 19) & 0x7FFFFFFFF) << 21) | (va & 0x1FFFFF);  
-                psize = PAGE_2MB;
+                *psize = PAGE_2MB;
                 break;
             case 0: {
                     uint64_t pa_ppn = (pte >> 10) & ((1 << 44) - 1);
                     pa = (pa_ppn << 12) | pgoff;
-                    psize = PAGE_4KB;
+                    *psize = PAGE_4KB;
                     break;
                     }
             default:            break;
@@ -280,12 +312,137 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
         uint8_t pte_flag = pte & ((1 << 7) - 1);
         *flags = pte_flag;
         uint64_t asid = cpu->asid;
-      //  printf("---=-=-=pte:0x%08x\n",pte);
-       // printf("before tlb insert  flag:0x%08x,0x%08x,0x%02x\n",va,pa,*flags);
-        tlb_insert(cpu,va,pte,flags,asid,psize);
+        bool need_stage2 = !!(cpu->v && (((cpu->csr[HGATP] >> 60) & 0XF ) != 0) );
+        if(!need_stage2)
+            tlb_insert(cpu,va,pte,flags,asid,*psize);
         return MMU_OK;
     }
 
+}
+
+
+/*
+ * Stage-2 地址翻译 (G-stage)
+ * 输入: gpa, acc_type (ACC_FETCH/ACC_LOAD/ACC_STORE)
+ * 输出: *spa (成功), 返回值: 0 成功, 或异常码 20/21/23
+ */
+int gstage_translate(CPU_State *cpu, uint64_t gpa, int acc_type, uint64_t *spa,uint8_t* flags) {
+    uint64_t hgatp = cpu->csr[HGATP];
+    int mode = (hgatp >> 60) & 0xF;
+
+    // Bare 模式：GPA 即 SPA
+    if (mode == 0) {
+        *spa = gpa;
+        return 0;
+    }
+
+    // 仅支持 Sv39x4 (mode=8)
+    if (mode != 8) {
+        return (acc_type == ACC_FETCH) ? GSTAGE_FAULT_INST :
+               (acc_type == ACC_LOAD)  ? GSTAGE_FAULT_LOAD :
+                                         GSTAGE_FAULT_STORE;
+    }
+
+    uint64_t root_ppn = hgatp & 0x0000FFFFFFFFFFFFULL; // 44-bit PPN
+    uint64_t table_addr = root_ppn << 12;
+
+    int i = SV39_LEVELS - 1;  // 2
+    while (1) {
+        // 提取当前级别的 VPN
+        uint64_t vpn_i;
+        switch (i) {
+            case 2: vpn_i = (gpa >> 30) & 0x1FF; break;
+            case 1: vpn_i = (gpa >> 21) & 0x1FF; break;
+            case 0: vpn_i = (gpa >> 12) & 0x1FF; break;
+            default:
+                return (acc_type == ACC_FETCH) ? GSTAGE_FAULT_INST :
+                       (acc_type == ACC_LOAD)  ? GSTAGE_FAULT_LOAD :
+                                                 GSTAGE_FAULT_STORE;
+        }
+
+        uint64_t pte_addr = vpn_i * 8 + table_addr;
+        uint64_t pte = phys_read_u64(cpu, pte_addr);
+
+        // PTE 必须有效
+        if (!(pte & PTE_V)) {
+            return (acc_type == ACC_FETCH) ? GSTAGE_FAULT_INST :
+                   (acc_type == ACC_LOAD)  ? GSTAGE_FAULT_LOAD :
+                                             GSTAGE_FAULT_STORE;
+        }
+
+        // 非法组合 W=1 且 R=0
+        if ((pte & PTE_W) && !(pte & PTE_R)) {
+            return (acc_type == ACC_FETCH) ? GSTAGE_FAULT_INST :
+                   (acc_type == ACC_LOAD)  ? GSTAGE_FAULT_LOAD :
+                                             GSTAGE_FAULT_STORE;
+        }
+
+        // 判断是否为叶节点（R/W/X 任一置位）
+        int is_leaf = (pte & PTE_R) || (pte & PTE_X) || (pte & PTE_W);
+
+        if (!is_leaf) {
+            if (--i < 0)
+                return (acc_type == ACC_FETCH) ? GSTAGE_FAULT_INST :
+                       (acc_type == ACC_LOAD)  ? GSTAGE_FAULT_LOAD :
+                                                 GSTAGE_FAULT_STORE;
+            uint64_t next_ppn = (pte >> 10) & ((1ULL << 44) - 1);
+            table_addr = next_ppn << 12;
+            continue;
+        }
+
+        // ---------- 权限检查（仅 R/W/X）----------
+        if (acc_type == ACC_LOAD && !(pte & PTE_R))
+            return GSTAGE_FAULT_LOAD;
+        if (acc_type == ACC_FETCH && !(pte & PTE_X))
+            return GSTAGE_FAULT_INST;
+        if (acc_type == ACC_STORE && !(pte & PTE_W))
+            return GSTAGE_FAULT_STORE;
+
+        // ---------- 大页对齐检查 ----------
+        if (i > 0) {
+            uint64_t ppn_field = (pte >> 10) & ((1ULL << 44) - 1);
+            if (i == 2) { // 1 GiB 页，低 18 位必须为 0
+                if (ppn_field & ((1ULL << 18) - 1))
+                    return (acc_type == ACC_FETCH) ? GSTAGE_FAULT_INST :
+                           (acc_type == ACC_LOAD)  ? GSTAGE_FAULT_LOAD :
+                                                     GSTAGE_FAULT_STORE;
+            } else if (i == 1) { // 2 MiB 页，低 9 位必须为 0
+                if (ppn_field & ((1ULL << 9) - 1))
+                    return (acc_type == ACC_FETCH) ? GSTAGE_FAULT_INST :
+                           (acc_type == ACC_LOAD)  ? GSTAGE_FAULT_LOAD :
+                                                     GSTAGE_FAULT_STORE;
+            }
+        }
+
+        // ---------- 硬件自动更新 A/D 位 ----------
+        /*
+        uint64_t must_set = 0;
+        if (!(pte & PTE_A)) must_set |= PTE_A;
+        if (acc_type == ACC_STORE && !(pte & PTE_D)) must_set |= PTE_D;
+        if (must_set) {
+            phys_write_u64(cpu, pte_addr, pte | must_set);
+            pte = phys_read_u64(cpu, pte_addr); // 刷新 pte
+        } */
+
+        // ---------- 计算最终物理地址 (SPA) ----------
+        uint64_t pa = 0;
+        uint64_t pgoff = gpa & 0xFFF;
+        switch (i) {
+            case 2:  // 1 GiB 大页
+                pa = (((pte >> 28) & 0x3FFFFFF) << 30) | (gpa & 0x3FFFFFF);
+                break;
+            case 1:  // 2 MiB 大页
+                pa = (((pte >> 19) & 0x7FFFFFFFF) << 21) | (gpa & 0x1FFFFF);
+                break;
+            case 0:  // 4 KiB 页
+                pa = (((pte >> 10) & ((1ULL << 44) - 1)) << 12) | pgoff;
+                break;
+        }
+
+        *spa = pa;
+        *flags = pte & ((1 << 7) - 1);
+        return 0; // 成功
+    }
 }
 
 //--------------TLB---------------
@@ -352,62 +509,69 @@ int tlb_lookup(CPU_State *cpu, uint64_t va, int acc, uint64_t *pa, uint16_t asid
     uint64_t match_tag = 0;
     uint64_t shift = 0;
 
+    // 计算当前有效的 VMID
+    uint64_t hgatp = cpu->csr[HGATP];
+    uint16_t vmid = 0;
+    bool stage2_active = !!(cpu->v && ((hgatp >> 60) & 0xF) != 0);
+    if (stage2_active) {
+        // V=1 且 hgatp 非 Bare，使用 hgatp 的 ASID 域作为 VMID
+        vmid = (uint16_t)(hgatp & 0xFFFF);
+    }
+
     for (int i = 0; i < TLB_SIZE; i++) {
         TLBEntry *e = &cpu->tlb.entries[i];
 
-        switch (e->page_size)
-        {
-        case PAGE_4KB:
-            shift = 12;
-            vpn = (va >> 12) & 0x3FFFFFF;
-            page_off = va & 0xFFF;
-            match_tag = vpn | ((uint64_t)asid << 26);
-            break;
-        case PAGE_2MB:
-            shift = 21;
-            vpn = (va >> 21) & 0x1FFFFF;
-            page_off = va & 0x1FFFFF;
-            match_tag = vpn | ((uint64_t)asid << 21);
-            break;
-        case PAGE_1GB:
-            shift = 30;
-            vpn = (va >> 30) & 0x3FF;
-            page_off = va & 0x3FFFFFFF;
-            match_tag = vpn | ((uint64_t)asid << 30);
-            break;
-        default:
-            break;
+        if (!e->valid) continue;
+
+        // 根据条目记录的页面大小计算 VPN 和偏移
+        switch (e->page_size) {
+            case PAGE_4KB:
+                shift = 12;
+                vpn = (va >> 12) & 0x3FFFFFF;
+                page_off = va & 0xFFF;
+                break;
+            case PAGE_2MB:
+                shift = 21;
+                vpn = (va >> 21) & 0x1FFFFF;
+                page_off = va & 0x1FFFFF;
+                break;
+            case PAGE_1GB:
+                shift = 30;
+                vpn = (va >> 30) & 0x3FF;
+                page_off = va & 0x3FFFFFFF;
+                break;
+            default:
+                continue;   // 无效大小
         }
 
-        if (!e->valid) continue;
-        // ====================== 正确匹配 ======================
+        // 构造期望的 tag：统一格式
+        match_tag = vpn | ((uint64_t)asid << 26) | ((uint64_t)vmid << 48);
+
+        // 匹配 tag
         if (e->global) {
-            // 全局页：只对比 VPN
-            if(e->page_size == PAGE_1GB){
-                if ((e->tag & 0x3FF) != vpn) continue;
-            }
-            else if(e->page_size == PAGE_2MB){
-                if ((e->tag & 0x1FFFFF) != vpn) continue;
-            }
-            else {
-                if ((e->tag & 0x3FFFFFF) != vpn) continue;
-            }
+            // 全局页：只对比 VPN（忽略 ASID/VMID）
+            // 注意：全局页应确保在所有地址空间中映射相同
+            if ((e->tag & 0x3FFFFFF) != vpn) continue;   // 取出低 26 位 VPN
         } else {
-            // 非全局页：tag 必须完全一致（VPN+ASID）
+            // 非全局页：tag 必须完全一致（包含 ASID、VMID）
             if (e->tag != match_tag) continue;
         }
-        
-        // 命中
+        if (stage2_active && e->vmid == 0) continue; // 忽略单阶段条目
+
+        // 命中，更新 LRU
         e->last_used = cpu->tlb_cnt++;
+
+        // 权限检查（与原来一致）
         TLBResult f = tlb_check(cpu, acc, e);
         if (f != TLB_OK) return f;
+
+        // 返回物理地址
         *pa = (e->ppn << shift) | page_off;
-        return TLB_OK; 
+        return TLB_OK;
     }
 
     return TLB_MISS;
 }
-
 void tlb_insert(CPU_State *cpu, uint64_t va, uint64_t pte, uint8_t* flags, uint16_t asid,
                     PageSize psize) {
     uint64_t vpn = 0;
@@ -483,7 +647,71 @@ void tlb_flush(CPU_State* cpu){
     }
     cpu->tlb.next_replace = 0;
 }
+/*
+ * tlb_insert_2stage - 插入 GVA -> SPA 映射到 TLB
+ * cpu:      CPU 状态
+ * gva:      Guest 虚拟地址
+ * spa_ppn:  SPA 的物理页号 (spa >> 12)
+ * merged_flags: 合并后的权限位 (Stage-1 权限 & Stage-2 权限)，格式同 PTE 低 8 位
+ * asid:     Stage-1 地址空间 ID (来自 vsatp 或 satp)
+ * vmid:     Stage-2 虚拟机 ID (来自 hgatp 的 ASID 字段)
+ * psize:    页面大小 (PAGE_4KB / PAGE_2MB / PAGE_1GB)
+ */
+void tlb_insert_2stage(CPU_State *cpu, uint64_t gva, uint64_t spa_ppn,
+                       uint8_t merged_flags, uint16_t asid, uint16_t vmid,
+                       PageSize psize) {
+    // 计算 VPN（根据页面大小）
+    uint64_t vpn;
+    switch (psize) {
+        case PAGE_4KB:
+            vpn = (gva >> 12) & 0x3FFFFFF;
+            break;
+        case PAGE_2MB:
+            vpn = (gva >> 21) & 0x1FFFFF;
+            break;
+        case PAGE_1GB:
+            vpn = (gva >> 30) & 0x3FF;
+            break;
+        default:
+            return;
+    }
 
+    // 构造 tag
+    uint64_t tag = vpn | ((uint64_t)asid << 26) | ((uint64_t)vmid << 48);
+    bool global = (merged_flags & PTE_G) != 0;  // 注意：PTE_G 在合并权限中可能被清除，实践中一般不用
+
+    // LRU 替换（与原函数相同）
+    int replace_idx = 0;
+    uint64_t min_used = cpu->tlb.entries[0].last_used;
+    for (int i = 0; i < TLB_SIZE; i++) {
+        if (!cpu->tlb.entries[i].valid) {
+            replace_idx = i;
+            break;
+        }
+        if (cpu->tlb.entries[i].last_used < min_used) {
+            min_used = cpu->tlb.entries[i].last_used;
+            replace_idx = i;
+        }
+    }
+
+    TLBEntry *entry = &cpu->tlb.entries[replace_idx];
+    entry->valid = true;
+    entry->global = global;
+    entry->ppn = spa_ppn;               // 直接存 SPA 的物理页号
+    entry->asid = asid;
+    entry->vmid = vmid;                 // 记录虚拟机 ID
+    entry->page_size = psize;
+    entry->flags = merged_flags;        // 合并后的完整权限
+    entry->last_used = cpu->tlb_cnt++;  // LRU 计数器
+
+    // tag 处理
+    if (global) {
+        // 全局页：只靠 VPN 匹配（通常不需要，因为 G 位在虚拟化下一般禁用）
+        entry->tag = vpn;
+    } else {
+        entry->tag = tag;               // 非全局：VPN + ASID + VMID
+    }
+}
 
 
 void map_vaddr_to_paddr(CPU_State* cpu,uint64_t vaddr,uint64_t paddr,uint64_t size,uint8_t flags,uint16_t asid){
@@ -531,11 +759,8 @@ void take_smode_fault(CPU_State *cpu, uint64_t cause, bool is_interrupt) {
 
     // 跳转到 S 模式的异常处理程序
     cpu->pc = cpu->csr[CSR_STVEC] & ~0x3ULL; 
-    if(cpu->csr[CSR_SEPC] == 0x80201040){
-        printf("take smode fault: cause:0x%08x, stval:0x%08x\n",cause,cpu->mem_fault.vaddr);
-
-        printf("pc:0x%016lx\n",cpu->pc);
-    }
+    if(log_enable)
+        printf("[hd S mode trap] jump to: 0x%16lx\n",cpu->pc);
 }
 
 void take_mmode_fault(CPU_State *cpu, uint64_t cause, bool is_interrupt) {
@@ -547,7 +772,9 @@ void take_mmode_fault(CPU_State *cpu, uint64_t cause, bool is_interrupt) {
     // 3. 切换到 M 模式并跳转到异常处理程序
     
     write_csr(cpu, CSR_MEPC, cpu->pc); // 保持原来的 PC
-
+    if(log_enable){
+        printf("[hardware M mode trap] csr_mepc:0x%16lx\n",cpu->csr[CSR_MEPC]);
+    }
     uint64_t mstatus = read_csr(cpu,CSR_MSTATUS);
     // 4.把当前mie保存到mpie
     if (mstatus & MSTATUS_MIE) {
@@ -569,102 +796,106 @@ void take_mmode_fault(CPU_State *cpu, uint64_t cause, bool is_interrupt) {
 
     // 跳转到 M 模式的异常处理程序
     cpu->pc = cpu->csr[CSR_MTVEC] & ~0x3ULL; 
+    if(log_enable)
+        printf("[hd M mode trap] jump to: 0x%16lx\n",cpu->pc);
 }
 
+uint64_t get_pa(CPU_State *cpu,uint64_t gva,int acc_type){
+    uint64_t gpa = 0;
+    uint64_t satp =  read_csr(cpu,CSR_SATP);
+    uint8_t stage1_flags = 0;
+    uint8_t stage2_flags = 0;
+    uint64_t hgatp = cpu->csr[HGATP];
+    PageSize psize;
+    cpu->asid = (cpu->v ? cpu->vsatp : cpu->csr[CSR_SATP]) & 0xFFFF;
 
-// handle page fault
-void handle_page_fault(CPU_State *cpu, uint64_t va, int acc) {
+    if(log_enable){
+        printf("[get_pa] satp:0x%16lx,pri:%d",satp,cpu->privilege);
 
-}
-
-
-void init_page_table(CPU_State *cpu) {
-    /*uint64_t *root_page_table = malloc(PAGE_SIZE); // 4KB
-    if(!root_page_t able){
-        printf("failed malloc root page table\n");
     }
-    
-
-    memset(root_page_table, 0, PAGE_SIZE);
-    
-    uint64_t root_pa = 0x1000;
-    memcpy(cpu->mem + root_pa, root_page_table, PAGE_SIZE);
-    uint64_t val = memory_read(cpu->mem,cpu->mem + root_pa,4);
-    */
-    cpu->asid = 1;
-    cpu->satp = (1 << 31) | (cpu->asid << 22) | (0x90000000 >> 12);
-    //ppn = 0x90000 , ppn << 12 得到页表的起始物理地址 就是模拟器的物理地址0x90000000
-    printf("init page table: cpu->satp:0x%08x\n",cpu->satp);
-    uint64_t l1_tsa = (cpu->satp & ( (1 << 22) - 1)) << 12;
-    uint64_t va = 0x7fff0000;
-    uint64_t l0_tsa = 0xA0000 << 12;
-    uint64_t vpn_i1,vpn_i0;
-  
-    vpn_i1 = (va >> (PAGE_OFFSET_BITS + VPN_BITS)) & ((1u << VPN_BITS) - 1);
-    vpn_i0 = (va >> PAGE_OFFSET_BITS) & ((1u << VPN_BITS) - 1);
-    printf("va:0x%08x,vpni0:0x%08x\n",va,vpn_i0);
-
-    uint64_t pte_addr1 = l1_tsa + vpn_i1 * PTE_SIZE;
-    printf("pte_addr1:0x%08x\n",pte_addr1);
-    uint64_t pte_addr0 = l0_tsa + vpn_i0 * PTE_SIZE;
-    printf("pte_addr0:0x%08x ,l0_tsa:0x%08x, vpn_i0:0x%08x\n",pte_addr0,l0_tsa,vpn_i0);
-    phys_write_u32(cpu, pte_addr1, 0x28000031);// PTE[0]
-    
-    phys_write_u32(cpu, pte_addr0, 0x2000001F); //L0 PTE[0] -> 0x80000000
-
-    phys_write_u32(cpu,0xA0000FC4,0x2000101F);// L0   0X80001000;
-
-    phys_write_u32(cpu,0xA0000FC8,0x2000200F);// L0   0X80002000;
-    
-
-   
-   // free(root_page_table);
-    return;
-
-}
-
-
-uint64_t get_pa(CPU_State *cpu,uint64_t vaddr,int acc_type){
-    uint64_t pa = 0;
-    uint64_t satp = cpu->csr[CSR_SATP];
-    uint8_t flags = 0;
 
     if (((satp >> 60) & 0xF) == 0 || cpu->privilege == 3) { // M 模式 || SATP 模式为 BARE
-        return vaddr;
-    }
-    int result = tlb_lookup(cpu,vaddr,acc_type,&pa,cpu->asid);
-       if(cpu->pc == 0xffffffe000311e56){
-            result = TLB_MISS;
-            printf("result:0x%08x\n",result);
-            printf("tlb lookup failed for va:0x%016lx, acc_type:0x%08x\n",vaddr,acc_type);
-    }
-    if(result == TLB_OK){
-        return pa;
-    }
-     
+        gpa = gva;
+        if(log_enable)
+            printf("gva :0x%16lx,gpa:0x%16lx\n",gva,gpa);
+        if (cpu->v && ((hgatp >> 60) & 0xF) != 0) {
+            if(log_enable)
+                printf("V:%d,hgatp:0x%16lx\n",cpu->v,hgatp);
+            uint64_t hpa;
+            uint8_t stage2_flags;
+            int res = gstage_translate(cpu, gpa, acc_type, &hpa, &stage2_flags);
+            if(log_enable){
+                printf("res:%d,hpa:0x%16lx\n");
+            }
 
+            if (res != MMU_OK) {
+                FaultCtx f = { .src = res, .acc_type = acc_type, .va = gpa };
+                handle_fault(cpu, &f);
+                return 0;
+            }
+            return hpa;
+        }
+        return gpa; // 真正不需要 Stage‑2
+        
+    }
+    int result = tlb_lookup(cpu,gva,acc_type,&gpa,cpu->asid);
+    if(log_enable)
+        printf("[TLB result]:%d\n",result);
+
+
+    if(result == TLB_OK){
+        return gpa;
+    }
+    /*
     if(result == TLB_FAULT){
          FaultCtx f = {
             .src = TLB_FAULT,
             .acc_type = acc_type,
-            .va = vaddr
+            .va = gva
+        };
+        handle_fault(cpu, &f);
+        return 0;
+    } */
+
+    result = sv39_translate(cpu,gva,acc_type,&gpa,&stage1_flags,&psize);
+    
+    if(log_enable)
+        printf("[sv39 result]:%d\n",result);
+
+    if(result != MMU_OK){
+        FaultCtx f = {
+            .src = result,
+            .acc_type = acc_type,
+            .va = gva
         };
         handle_fault(cpu, &f);
         return 0;
     }
 
-    result = sv39_translate(cpu,vaddr,acc_type,&pa,&flags);
-        if(cpu->pc == 0xffffffe000311e56){
-       printf("sv39 translate result:0x%08x for va:0x%08x, acc_type:0x%08x\n",result,vaddr,acc_type);
-    }
-    if(result != MMU_OK){
-        FaultCtx f = {
+    if(cpu->v && ((hgatp >> 60)& 0xff != 0)){
+        uint64_t hpa;
+
+        int result = gstage_translate(cpu,gpa,acc_type,&hpa,&stage2_flags);
+
+        if(result != MMU_OK){
+             FaultCtx f = {
             .src = result,
             .acc_type = acc_type,
-            .va = vaddr
-        };
-        handle_fault(cpu, &f);
-        return 0;
+            .va = gpa
+            };
+
+         handle_fault(cpu,&f);
+         return 0;
+        }
+
+        uint8_t merged_flags = stage1_flags & stage2_flags;
+        uint16_t asid = (cpu->v ? cpu->vsatp : cpu->satp) & 0xFFFF; 
+        uint16_t vmid = cpu->csr[HGATP] & 0xFFFF; 
+        uint64_t hpa_ppn = hpa >> 12;
+
+        tlb_insert_2stage(cpu,gva,hpa_ppn,merged_flags,asid,vmid,psize);
+        return hpa;
     }
-    return pa;
+   
+    return gpa;
 }

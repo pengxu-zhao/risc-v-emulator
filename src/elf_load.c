@@ -300,6 +300,7 @@ int load_elf64_SBI(const char *filename, uint64_t *entry_point) {
   //  if (!filename || !entry_point || !cpu) return -1;
 
     FILE *f = fopen(filename, "rb");
+    printf("filename: %s\n", filename);
     if (!f) {
         fprintf(stderr, "fopen(%s) failed: %s\n", filename, strerror(errno));
         return -1;
