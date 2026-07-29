@@ -264,7 +264,7 @@ void write_csr(CPU_State *cpu, unsigned id, uint64_t v){
                 break;
        
         }
+    }else{
+        cpu->csr[id & 0xfff] = v; 
     }
-
-    cpu->csr[id & 0xfff] = v; 
 }

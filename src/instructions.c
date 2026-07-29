@@ -745,7 +745,7 @@ void exec_auipc(CPU_State* cpu, uint32_t instruction) {
     uint8_t rd = (instruction >> 7) & 0x1F;
     uint32_t imm20 = (instruction & 0xFFFFF000);
           
-    int32_t imm = (int32_t)imm20;
+    int64_t imm = (int64_t)((int32_t)imm20);
     if (rd != 0) {
         cpu->gpr[rd] = cpu->pc + imm;
     }
@@ -805,8 +805,9 @@ void exec_jalr(CPU_State* cpu, uint32_t instruction){
 
     int64_t imm = (int64_t)(((int32_t)imm12 << 20) >> 20);
     
-
     uint64_t addr = (cpu->gpr[rs1] + imm) & ~1;
+    if(log_enable)
+        printf("imm12:0x%16lx\n,imm:0x%16lx\n",imm12,imm);
 
     if(rd != 0){
         cpu->gpr[rd] = cpu->pc + 4;
@@ -1208,9 +1209,15 @@ void exec_ecall(CPU_State* cpu, uint32_t instruction) {
        // printf(BLUE "execute ECALL pc:0x%16lx,j:%ld,:a6: %d a7:%d\n" RESET,cpu->pc,j,cpu->gpr[16],cpu->gpr[17]);
     /* 选择是从 U/S/M 发出的 ECALL：根据当前 privilege 设置 cause */
  
-    uint32_t cause = (cpu->privilege == 0 ? EXC_ECALL_U :
+    uint32_t cause = 0;
+    
+    if(cpu->v){
+        cause = 10;
+    }else{
+    
+    cause = (cpu->privilege == 0 ? EXC_ECALL_U :
                     cpu->privilege == 1 ? EXC_ECALL_S : EXC_ECALL_M);
-
+    }
     cpu->mem_fault.vaddr = cpu->pc; //记录发生 ECALL 时的 PC 作为 faulting address
     if(log_enable){
         fprintf(stderr,"[ECALL] from privilege level %d, cause: %d,faulting address: 0x%016lx\n", cpu->privilege, cause, cpu->mem_fault.vaddr);
@@ -1220,10 +1227,12 @@ void exec_ecall(CPU_State* cpu, uint32_t instruction) {
 
     if(cpu->privilege != 3 && cpu->csr[CSR_MEDELEG] & (1 << cause)){
         // 如果当前特权级别不是 M 模式，并且 medeleg 中对应位被设置，说明这个异常应该委托给 S 模式处理
-        take_smode_fault(cpu,cause,false);
+       // take_smode_fault(cpu,cause,false);
+        take_smode_trap(cpu,cause,false);
     }else{
          // 否则由 M 模式处理
-         take_mmode_fault(cpu,cause,false);
+         //take_mmode_fault(cpu,cause,false);
+          take_mmode_trap(cpu,cause,false);
     }
     
   
@@ -1713,19 +1722,34 @@ void exec_csr(CPU_State* cpu,uint32_t instr){
     {
         case 0x1: // csrrw
             {
+                
+           // uint64_t old = cpu->csr[csr];
+          //  cpu->csr[csr] = cpu->gpr[rs1]; 
+            
+            if(log_enable){
+                printf("new:0x%16lx\n",cpu->gpr[rs1]);
+            }
 
-            uint64_t old = cpu->csr[csr];
-            cpu->csr[csr] = cpu->gpr[rs1];
-
+            uint64_t old = read_csr(cpu,csr);
+            write_csr(cpu,csr,cpu->gpr[rs1]);
+           
+            if(log_enable){
+                printf("old:0x%16lx\n",old);
+            }
+                
             if(rd != 0){
                 cpu->gpr[rd] = old;
             }
             
             if(log_enable){
                 fprintf(stderr,"rd = csr old value,csr = rs1\n");
-
+                if(cpu->v){
+                    printf("V csr:0x%16lx\n",cpu->vstvec);
+                }
+                else{
                 fprintf(stderr,"[csrrw] x[rd:%d]:0x%16lx,x[rs1:%d]:0x%16lx,csr[0x%08x]:0x%16lx\n",
                         rd,cpu->gpr[rd],rs1,cpu->gpr[rs1],csr,cpu->csr[csr]);
+                }
             }
          
             break;
@@ -3744,7 +3768,7 @@ void exec_sret(CPU_State *cpu,uint32_t instr){
     
     
     if(log_enable){
-        printf("[sret] pri:%d\n",cpu->privilege);
+        printf("[sret] pri:%d,V:%d\n",cpu->privilege,cpu->v);
     }
 
     // 更新 sstatus

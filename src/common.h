@@ -15,6 +15,9 @@
 #include <sys/types.h>
 #include <elf.h>
 
+//#define MMU_LOG
+//#define TLB_LOG
+
 #define RED   "\033[31m"
 #define GREEN "\033[32m"
 #define BLUE  "\033[34m"
@@ -28,8 +31,9 @@
 #define CSR_COUNT 0x1000
 #define MAX_CORES 4
 #define SBI_LOAD_ADDR 0x80000000
-#define IMAGE_LOAD_ADDR 0x80200000
+#define IMAGE_LOAD_ADDR 0x80400000 //0x80200000
 #define DTB_LOAD_ADDR 0x87000000
+#define GUEST_DTB_LOAD_ADDR 0x82000000
 
 #define CLINT_BASE_ADDR    0x02000000
 #define CLINT_SIZE         0x10000

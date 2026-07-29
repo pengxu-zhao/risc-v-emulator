@@ -45,6 +45,8 @@ extern imsic_t g_imsic;
 
 extern cache_t *L1,*L2,*L3;
 
+int rv_exit = 0;
+
 static uint64_t get_real_time_us() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -91,8 +93,11 @@ int main(int argc, char *argv[]) {
     
     load_bin("fw_jump.bin", SBI_LOAD_ADDR);
     load_bin("Image", IMAGE_LOAD_ADDR);
+    uint64_t entry_addr;
+    load_elf64_SBI("hyp.elf",&entry_addr);
     load_dtb("v1.dtb",DTB_LOAD_ADDR);
-    
+    load_dtb("guest_fdt.dtb",GUEST_DTB_LOAD_ADDR);
+
     for (int i = 0; i < 16; i++) {
         printf("%02x ", bus_read(&bus, 0x87000154 + i, 1));
     }
@@ -179,13 +184,16 @@ int main(int argc, char *argv[]) {
         printf("pc[%d]:0x%08lx\n",i,cpu[i].pc);
     }
     //275165  generic_domain_init
-   while(j < 439001){
-  
+
+    //440425 start mmu trampoline_pg_dir
+
+    //
+   while(j < 440544){
+        if(rv_exit) return;
         j++;
       
-        if(j == 439000) log_enable = 1;
-    
-        
+        if(j == 440543) log_enable = 1;
+
     for(int i = 0; i < 2;i++){
 
         //415421550
@@ -211,6 +219,7 @@ int main(int argc, char *argv[]) {
         //43879594    sie.stie = 1
         //44701841   kernel_init
         // 391373372
+
     
         for( int k = 0;k < 10; k++){
             //0x264d02 156138704
@@ -219,23 +228,30 @@ int main(int argc, char *argv[]) {
             
             //201395390   kernel_init ret to ret_from_exception
             //201424982
-            uint32_t stop_addr = 0xFFFFFFFF;
 
+            
+           // base = 0x80200000;
+
+            uint64_t stop_addr = 0xFFFFFFFFFFFFFFFF;
             if(argc > 1){
                 stop_addr = strtoul(argv[1], NULL, 16);
             }
             uint64_t base = 0;
-         
-            //base = 0xffffffe000000000;
             
-            base = 0x80000000;
-            
-            
-            if(stop_addr == (cpu[0].pc - base) && j > 68501){
+           // base = 0xffffffe000000000;
+            base = 0x80200000;
+            if(stop_addr == (cpu[0].pc - base) && j > 0){
+               
                 printf("stop at pc:0x%08lx,j:%ld,pri:%d\n",stop_addr + base,j,cpu[0].privilege);
-                j = 1000000000;
+                //   j = 11000000000;
+                rv_exit = 1;
+                
                 break;
             } 
+            
+            if(log_enable)
+                printf("[pc]:0x%16lx\n",cpu[0].pc);
+
        
             if(cpu[i].running == false){
                 break;
@@ -262,8 +278,9 @@ int main(int argc, char *argv[]) {
          
         }
         
-     }
-        if(log_enable){
+     } 
+    }
+        if(1){
             printf("\nFinal CPU state:\n");
             //cpu_dump_registers(&cpu[i]);
             
@@ -284,8 +301,6 @@ int main(int argc, char *argv[]) {
                 printf("TEST PASS\n");
             }
         }
-            
-    }
     
 
     return 0;

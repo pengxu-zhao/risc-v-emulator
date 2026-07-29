@@ -345,7 +345,7 @@ int load_elf64_SBI(const char *filename, uint64_t *entry_point) {
     // - 对于 ET_DYN（PIE），entry 通常为相对地址或0，需加上 load_base
     // - 对于 ET_EXEC，entry 是绝对虚拟地址
     if (eh.e_type == ET_DYN) {
-        load_base = 0x80000000ULL;
+        load_base = 0x80200000ULL;
         if (eh.e_entry == 0)
             *entry_point = load_base;
         else

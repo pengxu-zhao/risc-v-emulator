@@ -57,7 +57,7 @@ void take_vsmode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
     }
 
     if(log_enable){
-        printf("[S-Mode Trap]pc:0x%16lx\n", cpu->pc);
+        printf("[VS-Mode Trap]pc:0x%16lx\n", cpu->pc);
        
     }
 
@@ -70,6 +70,8 @@ void take_smode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
     //H extensions 保存发生陷阱前的 V 标志 spv
     uint64_t hstatus = cpu->csr[HSTATUS];
     hstatus = (hstatus & ~HSTATUS_SPV) | (cpu->v << 7);
+    // gva HSTATUS_GVA
+
     // spvp
     if(cpu->v && cpu->privilege == 1)// VS
     {
@@ -126,6 +128,10 @@ void take_smode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
     uint64_t base = stvec & ~0x3ULL;
     uint64_t mode = stvec & 0x3;
 
+    if(log_enable){
+        printf("[S-Mode Trap]base :0x%16lx,mode:%d,is_interrupt:%d\n",base,mode,is_interrupt);
+    }
+
     if (mode == VECTORED && is_interrupt) { 
         cpu->pc = base + ((uint64_t)cause << 2);
     } else {
@@ -134,7 +140,6 @@ void take_smode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
 
     if(log_enable){
         printf("[S-Mode Trap]pc:0x%16lx\n", cpu->pc);
-       
     }
 
 }
