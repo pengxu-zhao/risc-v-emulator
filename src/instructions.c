@@ -181,8 +181,9 @@ void exec_c0(CPU_State* cpu,uint16_t instr){
         
         uint64_t val = 0;
         uint64_t vaddr = cpu->gpr[rs1] + imm;
-        if(log_enable)
-            printf("rs1:%d  = 0x%16lx, rd:%d imm:0x%16lx\n",rs1,cpu->gpr[rs1],rd,imm);
+        if(log_enable){
+            printf("[c.ld] vaddr:0x%16lx\n",vaddr);
+        }
         uint64_t pa = get_pa(cpu,vaddr,ACC_LOAD);
         if(log_enable)
             printf("c.ld vaddr:0x%16lx, pa:0x%16lx\n",vaddr,pa);
@@ -507,6 +508,10 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
     uint32_t rs2 = ((instr >> 2) & 0x1F);
     uint32_t rs1 = ((instr >> 7) & 0x1F);
 
+    if(log_enable){
+        printf("funct3:0x%08lx\n",funct3);
+    }
+
     switch (funct3)
     {
     case 0b000://c.slli
@@ -552,6 +557,10 @@ void exec_c2(CPU_State* cpu,uint16_t instr){
         uint64_t imm = (uint64_t)(uint32_t)imm6;
         uint64_t vaddr = cpu->gpr[2] + imm;
         uint64_t val = 0;
+        if(log_enable){
+            printf("x2:0x%16lx\n",cpu->gpr[2]);
+            printf("[c.ldsp]vaddr: 0x%16lx , imm6:0x%08lx,imm:0x%08lx\n",vaddr,imm6,imm);
+        }
 
         uint64_t pa = get_pa(cpu,vaddr,ACC_LOAD);
         if(pa == 0) return;
@@ -4002,6 +4011,6 @@ void exec_hfence(CPU_State* cpu,uint32_t instr){
         // 简单实现：只要 vmid 匹配，全部刷掉，以确保正确性。
         e->valid = 0;
      }
-
+     printf("exec_hfence pc:0x%16lx\n",cpu->pc);
      cpu->pc += 4;
 }
