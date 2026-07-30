@@ -83,8 +83,8 @@ static inline void handle_fault(CPU_State *cpu, FaultCtx *f)
 // -------------------- 物理内存访问（直接使用物理地址，不走 mmu） --------------------
 static inline int phys_ok(CPU_State *cpu, uint64_t pa, uint64_t len) {
     // bounds check (you can hook platform-specific PMA checks here)
-
-    if ((uint64_t)pa + len > MEMORY_BASE + MEMORY_SIZE) return 0;
+                            // gpa range! not the hpa
+    if ((uint64_t)pa + len > 0x80200000 + MEMORY_SIZE) return 0;
     return 1;
 }
 
@@ -231,7 +231,6 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
 
         int is_leaf = ((pte & PTE_R) != 0) || 
                         ((pte & PTE_X) != 0) || ((pte & PTE_W) != 0);
-
      
         if(!is_leaf){
             if (--i < 0) return MMU_FAULT_PAGE;
@@ -252,7 +251,12 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
                 if (acc_type == ACC_FETCH) return MMU_FAULT_PAGE;
             }
         }
-    
+        #ifdef MMU_LOG
+            if(log_enable){
+                printf("[sv39] acc type:%d\n",acc_type);
+            }
+        #endif
+
         if (acc_type == ACC_LOAD && !(pte & PTE_R)) {
             if (!(cpu->mxr && (pte & PTE_X))) {
                 return MMU_FAULT_PAGE;}
@@ -262,6 +266,13 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
         if (acc_type == ACC_STORE && !(pte & PTE_W)) {
             return MMU_FAULT_PAGE;}
 
+        #ifdef MMU_LOG
+            if(log_enable){
+                uint64_t ppn = (pte >> 10) & ((1UL << 44) - 1);
+                printf("[sv39] i:%d , ppn:0x%16lx\n",i,ppn);
+            }
+        #endif
+        
         if(i > 0){
             uint64_t ppn = (pte >> 10) & ((1UL << 44) - 1);
             if (i == 2) {
@@ -338,7 +349,7 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
                     }
             default:            break;
         }
-      //  printf("[pa] 0x%16lx\n",pa);
+
         if (!phys_ok(cpu, pa, 1)) {  
             return MMU_FAULT_PAGE;
         }
@@ -347,6 +358,13 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
         *flags = pte_flag;
         uint64_t asid = cpu->asid;
         bool need_stage2 = !!(cpu->v && (((cpu->csr[HGATP] >> 60) & 0XF ) != 0) );
+        #ifdef MMU_LOG
+            if(log_enable){
+                printf("[sv39]pa:0x%16lx,need_stage2:%d\n",pa,need_stage2);
+            }
+        #endif
+
+
         if(!need_stage2)
             tlb_insert(cpu,va,pte,flags,asid,*psize);
         return MMU_OK;
@@ -966,7 +984,11 @@ uint64_t get_pa(CPU_State *cpu,uint64_t gva,int acc_type){
     } */
 
     result = sv39_translate(cpu,gva,acc_type,&gpa,&stage1_flags,&psize);
-    
+    #ifdef MMU_LOG
+        if(log_enable){
+            printf("[VS mode sv39 trans] result:%d\n",result);
+        }
+    #endif
     if(result != MMU_OK){
         FaultCtx f = {
             .src = result,
