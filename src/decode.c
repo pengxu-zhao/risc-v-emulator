@@ -50,9 +50,10 @@ static void handle_system(CPU_State* cpu,uint32_t instruction){
     uint8_t funct3 = (instruction >> 12) & 0x7;
     uint8_t funct7 = (instruction >> 25) & 0x3F;
     
+   
     if ((funct3 == 0)) {
         uint64_t imm12 = (instruction >> 20) & 0xfff;
-
+         if(log_enable) printf("funct3:%d,imm12:0x%08lx\n",funct3,imm12);
         if (imm12 == 0) { /* ECALL */
             system_table[imm12](cpu,instruction);
         } else if (imm12 == 1) { /* EBREAK */
@@ -67,12 +68,12 @@ static void handle_system(CPU_State* cpu,uint32_t instruction){
         }else if(imm12 == 0x105){
             //wfi wait for interrupt
             system_table[0x105](cpu,instruction);
-        }else if(imm12 == 0x620){ //hfence.gvma
-            system_table[0x620](cpu,instruction);
         }
     }
     if(funct3 == 0 && funct7 == 0x09){
         system_table[0x09](cpu,instruction);
+    }else if(funct3 == 0 && funct7 == 0x31){
+        system_table[0x620](cpu,instruction);
     }
     if(funct3 != 0){
         csr_instr[0x1](cpu,instruction);
@@ -119,6 +120,10 @@ static void handle_opcode(CPU_State* cpu,uint32_t instruction){
         opcode = instruction & 0x7F;
     }else{
         opcode = half;
+    }
+
+    if(log_enable){
+        printf("[opcode] : 0x%08lx\n",opcode);
     }
 
     if (opcode_table[opcode]) {
