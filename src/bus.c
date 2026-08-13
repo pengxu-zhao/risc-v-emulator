@@ -6,6 +6,7 @@ extern int j;
 extern CPU_State cpu[MAX_CORES];
 extern *L1;
 extern uint8_t *memory;
+extern int rv_exit;
 
 void bus_register_mmio(Bus *bus, uint64_t base, uint64_t size,
                        uint64_t (*read)(void*, uint64_t, unsigned),
@@ -64,6 +65,6 @@ void bus_write(Bus *bus, uint64_t addr, uint64_t val, unsigned size) {
     }
 
     printf("[bus_write]addr:0x%16lx not in any mmio region j:%d,pc:0x%16lx\n",addr,j,cpu[0].pc);
-    
+
     //cpu[0].halted = true; // 遇到非法访问时停止 CPU
 }

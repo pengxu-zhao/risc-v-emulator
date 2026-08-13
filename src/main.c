@@ -187,15 +187,18 @@ int main(int argc, char *argv[]) {
 
     //440425 start mmu trampoline_pg_dir
 
-    //
-   while(j < 440544){
+    //441503  parse_dtb()
+    // 547852
+   while(j < 1457279){
         if(rv_exit) return;
         j++;
       
-        if(j == 440543) log_enable = 1;
+        if(j == 1457278){ 
+            log_enable = 1;
+        }
 
     for(int i = 0; i < 2;i++){
-
+       if(i == 1) log_enable = 0;
         //415421550
         // 415283130  first to 800053ce
 
@@ -229,17 +232,22 @@ int main(int argc, char *argv[]) {
             //201395390   kernel_init ret to ret_from_exception
             //201424982
 
-            
-           // base = 0x80200000;
+            uint64_t v = bus_read(&bus, 0x902c5f90, 8);
+            if(v != 0){
+                //printf("-----------0x910c5f90: 0x%016lx , pc:0x%08lx\n",v,cpu[0].pc);\
+                //rv_exit = 1;
+            }
 
+           
             uint64_t stop_addr = 0xFFFFFFFFFFFFFFFF;
             if(argc > 1){
                 stop_addr = strtoul(argv[1], NULL, 16);
             }
             uint64_t base = 0;
             
-           // base = 0xffffffe000000000;
-            base = 0x80200000;
+           base = 0xffffffe000000000;
+           // base = 0x90200000;
+
             if(stop_addr == (cpu[0].pc - base) && j > 0){
                
                 printf("stop at pc:0x%08lx,j:%ld,pri:%d\n",stop_addr + base,j,cpu[0].privilege);

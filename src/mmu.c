@@ -203,11 +203,17 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
         uint8_t  G_state_ret = 0;
         #ifdef MMU_LOG
         if(log_enable){
-            printf("V:%d\n",cpu->v);
-            printf("pte_addr_gpa:0x%16lx\n",pte_addr);
+            printf("[sv39]V:%d\n",cpu->v);
+            printf("[sv39]pte_addr_gpa:0x%16lx\n",pte_addr);
         }
         #endif
         if(cpu->v){
+            #ifdef MMU_LOG
+            if(log_enable){
+                printf("[sv39] need trans pte_gpa to pte_hpa!\n");
+            }
+            #endif
+
             G_state_ret = gstage_translate(cpu,pte_addr,ACC_LOAD,&pte_addr_hpa,flags);
             pte = phys_read_u64(cpu,pte_addr_hpa);
         }
@@ -231,7 +237,13 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
 
         int is_leaf = ((pte & PTE_R) != 0) || 
                         ((pte & PTE_X) != 0) || ((pte & PTE_W) != 0);
-     
+        
+        #ifdef MMU_LOG
+            if(log_enable){
+            printf("[sv39] is_leaf:%d\n",is_leaf);
+            }
+        #endif
+
         if(!is_leaf){
             if (--i < 0) return MMU_FAULT_PAGE;
             uint64_t next_ppn = (pte >> 10) & ((1 << 44) - 1);
@@ -253,7 +265,7 @@ int sv39_translate(CPU_State* cpu,uint64_t va,int acc_type,uint64_t *out_pa,uint
         }
         #ifdef MMU_LOG
             if(log_enable){
-                printf("[sv39] acc type:%d\n",acc_type);
+                printf("[sv39] acc type:%d,pte:0x%16lx\n",acc_type,pte);
             }
         #endif
 
@@ -383,7 +395,7 @@ int gstage_translate(CPU_State *cpu, uint64_t gpa, int acc_type, uint64_t *spa,u
     int mode = (hgatp >> 60) & 0xF;
     #ifdef MMU_LOG
     if(log_enable){
-        printf("G-stage hgatp:0x%16lx\n",hgatp);
+        printf("[G-stage] hgatp:0x%16lx\n",hgatp);
     }
     #endif
     // Bare 模式：GPA 即 SPA
@@ -422,8 +434,9 @@ int gstage_translate(CPU_State *cpu, uint64_t gpa, int acc_type, uint64_t *spa,u
         uint64_t pte = phys_read_u64(cpu, pte_addr);
         #ifdef MMU_LOG
         if(log_enable){
-            printf("i:%d,pte_addr:0x%16lx,pte:0x%16lx\n",i,pte_addr,pte);
-            printf("pte_v:%d,pte_w && !pte_R:%d",pte&PTE_V,(pte & PTE_W) && !(pte & PTE_R));
+            printf("[G-stage]i:%d,pte_addr_hpa:0x%16lx,pte:0x%16lx\n",i,pte_addr,pte);
+            printf("[G-stage]gpa:0x%16lx,vpn_i:%d\n",gpa,vpn_i);
+            printf("[G-stage]pte_v:%d,pte_w :%d, pte_R:%d\n",pte&PTE_V,(pte & PTE_W) ,(pte & PTE_R));
         }
         #endif
         // PTE 必须有效
@@ -445,13 +458,13 @@ int gstage_translate(CPU_State *cpu, uint64_t gpa, int acc_type, uint64_t *spa,u
         int is_leaf = (pte & PTE_R) || (pte & PTE_X) || (pte & PTE_W);
         #ifdef MMU_LOG
         if(log_enable){
-            printf("is_leaf:%d\n",is_leaf);
+            printf("[G-stage]is_leaf:%d\n",is_leaf);
         }
         #endif
         if (!is_leaf) {
             if (--i < 0){
                 if(log_enable){
-                    printf("after --i:%d\n",i);
+                    printf("[G-stage]after --i:%d\n",i);
                 }
                 return (acc_type == ACC_FETCH) ? GSTAGE_FAULT_INST :
                        (acc_type == ACC_LOAD)  ? GSTAGE_FAULT_LOAD :
@@ -461,7 +474,7 @@ int gstage_translate(CPU_State *cpu, uint64_t gpa, int acc_type, uint64_t *spa,u
             table_addr = next_ppn << 12;
             #ifdef MMU_LOG
             if(log_enable){
-                printf("next_ppn:0x%16lx,table_addr:0x%16lx\n",next_ppn,table_addr);
+                printf("[G-stage]next_ppn:0x%16lx,table_addr:0x%16lx\n",next_ppn,table_addr);
             }
             #endif
 
@@ -508,7 +521,7 @@ int gstage_translate(CPU_State *cpu, uint64_t gpa, int acc_type, uint64_t *spa,u
         uint64_t pgoff = gpa & 0xFFF;
         #ifdef MMU_LOG
         if(log_enable)
-            printf("pgoff:0x%16lx,i:%d,pte:0x%16lx\n",pgoff,i,pte);
+            printf("[G-stage]pgoff:0x%16lx,i:%d,pte:0x%16lx\n",pgoff,i,pte);
         #endif
         switch (i) {
             case 2:  // 1 GiB 大页
@@ -516,6 +529,10 @@ int gstage_translate(CPU_State *cpu, uint64_t gpa, int acc_type, uint64_t *spa,u
                 break;
             case 1:  // 2 MiB 大页
                 pa = (((pte >> 19) & 0x7FFFFFFFF) << 21) | (gpa & 0x1FFFFF);
+                #ifdef MMU_LOG
+                if(log_enable)
+                    printf("[G-stage]2MB page pa:0x%16lx\n",pa);
+                #endif
                 break;
             case 0:  // 4 KiB 页
                 pa = (((pte >> 10) & ((1ULL << 44) - 1)) << 12) | pgoff;
@@ -523,7 +540,7 @@ int gstage_translate(CPU_State *cpu, uint64_t gpa, int acc_type, uint64_t *spa,u
         }
         #ifdef MMU_LOG
         if(log_enable)
-            printf("pa:0x%16lx\n",pa);
+            printf("[G-stage]hpa:0x%16lx\n",pa);
         #endif
         *spa = pa;
         *flags = pte & ((1 << 7) - 1);

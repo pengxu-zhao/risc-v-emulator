@@ -82,7 +82,7 @@ void take_smode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
     }
     cpu->v = false;//进入 HS 模式后清零
 
-    //htval
+    
     //hinst
 
     // 1. 保存当前pc到sepc
@@ -151,7 +151,7 @@ void take_mmode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
         printf("[handle mmode trap]");
     }
     /* 2) mcause: 高位标志中断 bit31: 1:interrupt  0:exception ,   cause: 异常/中断的类型编号*/
-    uint64_t mcause = is_interrupt ? (1u<<63) | (cause & 0x7fffffff) : (cause & 0x7fffffff);
+    uint64_t mcause = is_interrupt ? (1ULL << 63) | (cause & 0x7fffffff) : (cause & 0x7fffffff);
     write_csr(cpu, CSR_MCAUSE, mcause);
     
     /* 3) mtval（如果适用）— 这里简单置 0，某些异常需要写具体值 */
@@ -162,7 +162,7 @@ void take_mmode_trap(CPU_State *cpu, uint64_t cause, bool is_interrupt){
     if (mstatus & MSTATUS_MIE) mstatus |= MSTATUS_MPIE; else mstatus &= ~MSTATUS_MPIE;
     mstatus &= ~MSTATUS_MIE;
     mstatus = (mstatus & ~MSTATUS_MPP_MASK) | ((uint64_t)(cpu->privilege & 3) << MSTATUS_MPP_SHIFT);
-    mstatus = (mstatus & ~MSTATUS_MPV) | (cpu->v << 39);
+    mstatus = (mstatus & ~MSTATUS_MPV) | ((uint64_t)cpu->v << 39);
 
     write_csr(cpu, CSR_MSTATUS, mstatus);
 

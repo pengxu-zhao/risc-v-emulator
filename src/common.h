@@ -15,7 +15,7 @@
 #include <sys/types.h>
 #include <elf.h>
 
-//#define MMU_LOG
+#define MMU_LOG
 //#define TLB_LOG
 
 #define RED   "\033[31m"
@@ -31,9 +31,9 @@
 #define CSR_COUNT 0x1000
 #define MAX_CORES 4
 #define SBI_LOAD_ADDR 0x80000000
-#define IMAGE_LOAD_ADDR 0x80400000 //0x80200000
+#define IMAGE_LOAD_ADDR 0x90000000 //0x80200000
 #define DTB_LOAD_ADDR 0x87000000
-#define GUEST_DTB_LOAD_ADDR 0x82000000
+#define GUEST_DTB_LOAD_ADDR 0x85000000
 
 #define CLINT_BASE_ADDR    0x02000000
 #define CLINT_SIZE         0x10000
@@ -149,8 +149,8 @@
                                     //M-mode（机器模式）通过设置 mstatus.TVM 来限制 S-mode 的虚拟内存操作，
                                     //通常用于虚拟化（hypervisor）场景，防止访客操作系统直接操作页表或 TLB。
 
-#define MSTATUS_MPV (1 << 39) //记录 M 模式陷入时是否来自 V 模式
-#define MSTATUS_GVA (1 << 38) //mtval 中的地址是否为 guest 虚拟地址
+#define MSTATUS_MPV (1ULL << 39) //记录 M 模式陷入时是否来自 V 模式
+#define MSTATUS_GVA (1ULL << 38) //mtval 中的地址是否为 guest 虚拟地址
 #define HSTATUS_GVA (1 << 6)
 #define HSTATUS_SPV (1 << 7) //记录 VS 模式陷入时是否来自 V 模式
 #define HSTATUS_SPVP (1 << 8) //保存发生陷阱前的虚拟特权模式
@@ -241,7 +241,7 @@ typedef enum {
 #define COMPILER_BARRIER() asm volatile("" ::: "memory")
 
 
-#define MEMORY_SIZE 0x40000000//(1024UL * 1024UL * 1024UL * 1) // 4GB
+#define MEMORY_SIZE 0x100000000//(1024UL * 1024UL * 1024UL * 4) // 4GB
 #define MEMORY_BASE 0x80000000         // 内存基地址
 
 #define MEMORY_POOL_SIZE 0x40000000  // 例如 256MB 内存池

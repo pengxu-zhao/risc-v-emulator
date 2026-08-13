@@ -14,6 +14,7 @@
 extern uint8_t* memory;
 extern int log_enable;
 extern int j;
+extern int rv_exit;
 
 static inline print_all_gpr(CPU_State* cpu){
     fprintf(stderr,"x0~x31 value=========================\n");
@@ -1200,6 +1201,13 @@ void exec_store(CPU_State* cpu,uint32_t instructions){
                 rs2,cpu->gpr[rs2],rs1,cpu->gpr[rs1],imm);
         fprintf(stderr,"[sd 8 bytes] pa:0x%08lx\n",pa);
         }
+
+        if(value == 0 && pa == 0x81203ef8){
+            printf("--------[store 0] pc:0x%16lx,j:%ld\n",cpu->pc,j);
+           // rv_exit = 1;
+        }
+
+
         break;
     }
     default:
@@ -1341,13 +1349,9 @@ void exec_mret(CPU_State* cpu,uint32_t instr){
     }else{
         cpu->v = false;
     }
-
+    mstatus &= ~MSTATUS_MPV;
     cpu->csr[CSR_MSTATUS] = mstatus;
     cpu->pc = cpu->csr[CSR_MEPC];
-
-
-    
-
 
     if(log_enable){
         printf("[after mret]:0x%16lx\n",cpu->pc);
@@ -1911,7 +1915,9 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
     uint8_t aq = (instr >> 26) & 0x1;
     uint8_t funct7 = (instr >> 27) & 0x1F;
     uint64_t addr1 = cpu->gpr[rs1];
-
+      if(log_enable){
+                    fprintf(stderr,"[before AMOADD.W] addr:0x%08lx\n",addr1);
+                }
     uint64_t addr = get_pa(cpu,cpu->gpr[rs1],ACC_STORE);
     if(addr == 0) return;
     if(funct3 == 0b010){ // .w
@@ -1972,9 +1978,15 @@ void exec_amo(CPU_State* cpu,uint32_t instr){
             
             uint64_t val = cpu->gpr[rs2];
             uint64_t old_val = 0;
-            
+              
+
             old_val = bus_read(&cpu->bus,addr,4); 
             val += old_val;
+            if(log_enable){
+                fprintf(stderr,"[AMOADD.W] old val:0x%08x,val:0x%08x\n", (uint32_t)old_val, (uint32_t)val);
+                fprintf(stderr,"[AMOADD.W] hpa:0x%08lx\n",addr);
+            }
+
             bus_write(&cpu->bus,addr,val,4);
             if(rd != 0){
                 cpu->gpr[rd] = (int64_t)((int32_t)old_val);
@@ -4011,6 +4023,6 @@ void exec_hfence(CPU_State* cpu,uint32_t instr){
         // 简单实现：只要 vmid 匹配，全部刷掉，以确保正确性。
         e->valid = 0;
      }
-     printf("exec_hfence pc:0x%16lx\n",cpu->pc);
+
      cpu->pc += 4;
 }
